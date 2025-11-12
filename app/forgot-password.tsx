@@ -14,7 +14,7 @@ export default function ForgotPassword() {
     }
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: "https://uakxzzgfifssutxivpcj.supabase.co/auth/v1/callback", // 👈 customize this later
+      redirectTo: "https://uakxzzgfifssutxivpcj.supabase.co/auth/v1/callback", 
     });
 
     if (error) {
