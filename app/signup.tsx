@@ -1,39 +1,189 @@
- 
-import { Picker } from "@react-native-picker/picker";
-import * as Linking from "expo-linking";
+import { Ionicons } from "@expo/vector-icons";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
   Alert,
+  Dimensions,
+  KeyboardAvoidingView,
+  Platform,
   ScrollView,
-  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
-import { OAUTH_REDIRECT_URL, supabase } from "../src/lib/supabaseClient";
+import DropDownPicker from "react-native-dropdown-picker";
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
+import Svg, { Defs, Image, LinearGradient, Path, Rect, Stop } from "react-native-svg";
+import philippineAddresses from "../src/data/philippine_provinces_cities_municipalities_and_barangays_2019v2.json";
+import { supabase } from "../src/lib/supabaseClient";
+
+const { width, height } = Dimensions.get("window");
+
+// Philippine phone number formatter
+const formatPhilippinePhone = (value: string) => {
+  let digits = value.replace(/\D/g, "");
+  
+  if (digits.startsWith("63")) {
+    digits = digits.slice(0, 12);
+  } else if (digits.startsWith("9")) {
+    digits = "63" + digits.slice(0, 10);
+  } else if (digits.startsWith("0")) {
+    digits = "63" + digits.slice(1, 11);
+  } else {
+    digits = digits.slice(0, 12);
+  }
+  
+  if (digits.startsWith("63")) {
+    if (digits[2] === "9") {
+      return "+" + digits.slice(0, 2) + " " + digits.slice(2, 5) + " " + digits.slice(5, 8) + " " + digits.slice(8, 12);
+    }
+  }
+  return "+" + digits;
+};
 
 export default function Signup() {
-  const [stage, setStage] = useState<"auth" | "details">("auth");
+  const [stage, setStage] = useState<"auth" | "otp" | "credentials" | "address">("auth");
+  const [signupMethod, setSignupMethod] = useState<"email" | "google">("email");
+  const [branding, setBranding] = useState<any>(null);
 
   // Auth stage
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [emailFocused, setEmailFocused] = useState(false);
+  const [passwordFocused, setPasswordFocused] = useState(false);
+  const [confirmPasswordFocused, setConfirmPasswordFocused] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [otp, setOtp] = useState("");
 
-  // Details stage
+  // Credentials stage
   const [firstName, setFirstName] = useState("");
   const [middleName, setMiddleName] = useState("");
   const [lastName, setLastName] = useState("");
   const [suffix, setSuffix] = useState("");
+  const [suffixOpen, setSuffixOpen] = useState(false);
+  const [birthDate, setBirthDate] = useState("");
+  const [baptismalDate, setBaptismalDate] = useState("");
   const [gender, setGender] = useState("");
+  const [genderOpen, setGenderOpen] = useState(false);
   const [contactNumber, setContactNumber] = useState("");
-  const [branchId, setBranchId] = useState<number | null>(null);
-  const [branches, setBranches] = useState<{ branch_id: number; name: string }[]>([]);
+  const [showBirthDatePicker, setShowBirthDatePicker] = useState(false);
+  const [showBaptismalDatePicker, setShowBaptismalDatePicker] = useState(false);
 
-  const suffixOptions = ["", "Jr.", "Sr.", "II", "III", "IV"];
-  const genderOptions = ["Male", "Female"];
+  // Address stage
+  const [street, setStreet] = useState("");
+  const [region, setRegion] = useState("");
+  const [regionOpen, setRegionOpen] = useState(false);
+  const [province, setProvince] = useState("");
+  const [provinceOpen, setProvinceOpen] = useState(false);
+  const [city, setCity] = useState("");
+  const [cityOpen, setCityOpen] = useState(false);
+  const [barangay, setBarangay] = useState("");
+  const [barangayOpen, setBarangayOpen] = useState(false);
+  const [activeAddressDropdown, setActiveAddressDropdown] = useState<"region" | "province" | "city" | "barangay" | null>(null);
+ 
+
+  // Derived address data from philippine_provinces_cities_municipalities_and_barangays_2019v2.json
+  const regionOptions = Object.entries(philippineAddresses).map(([key, value]: [string, any]) => ({ 
+    label: value.region_name || key, 
+    value: key 
+  })).sort((a, b) => a.label.localeCompare(b.label));
+  
+  const provinceOptions = region && (philippineAddresses as any)[region] ? (
+    Object.keys((philippineAddresses as any)[region].province_list).map((provinceName: string) => ({ 
+      label: provinceName, 
+      value: provinceName 
+    })).sort((a, b) => a.label.localeCompare(b.label))
+  ) : [];
+  
+  const cityOptions = province && region && (philippineAddresses as any)[region]?.province_list?.[province] ? (
+    Object.keys((philippineAddresses as any)[region].province_list[province].municipality_list).map((cityName: string) => ({ 
+      label: cityName, 
+      value: cityName 
+    })).sort((a, b) => a.label.localeCompare(b.label))
+  ) : [];
+  
+  const barangayOptions =
+    region &&
+    province &&
+    city &&
+    (philippineAddresses as any)[region]
+      ?.province_list?.[province]
+      ?.municipality_list?.[city]
+      ?.barangay_list
+      ? (philippineAddresses as any)[region]
+          .province_list[province]
+          .municipality_list[city]
+          .barangay_list
+          .map((b: string) => ({
+            label: b,
+            value: b,
+          }))
+          .sort((a: any, b: any) => a.label.localeCompare(b.label))
+      : [];
+
+  // Reset province/city/barangay when region changes
+  useEffect(() => {
+    if (region) {
+      setProvince("");
+      setCity("");
+      setBarangay("");
+    }
+  }, [region]);
+
+  // Reset dependent fields when province changes
+  useEffect(() => {
+    if (province) {
+      setCity("");
+      setBarangay("");
+    }
+  }, [province]);
+
+  // Reset barangay when city changes
+  useEffect(() => {
+    if (city) {
+      setBarangay("");
+    }
+  }, [city]);
+
+  const [isLoading, setIsLoading] = useState(false);
+  const otpRefs = React.useRef<(TextInput | null)[]>([null, null, null, null, null, null]);
+
+  // Fetch branding
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await supabase.from("ui_settings").select("*").single();
+      if (error) console.error("❌ Branding fetch error:", error);
+      else setBranding(data);
+    })();
+  }, []);
+
+  const primary = branding?.primary_color || "#064622";
+  const secondary = branding?.secondary_color || "#319658";
+  const tertiary = branding?.tertiary_color || "#7ac29d";
+  const systemName = branding?.system_name || "E-ELYON";
+  const logo = branding?.logo_icon
+    ? branding.logo_icon.startsWith("http")
+      ? branding.logo_icon
+      : supabase.storage.from("logos").getPublicUrl(branding.logo_icon).data.publicUrl
+    : null;
+
+  // Animations
+  const formOpacity = useSharedValue(0);
+  const formTranslateY = useSharedValue(50);
+
+  useEffect(() => {
+    formOpacity.value = withTiming(1, { duration: 700, easing: Easing.out(Easing.cubic) });
+    formTranslateY.value = withTiming(0, { duration: 700, easing: Easing.out(Easing.cubic) });
+  }, [stage]);
 
   // ✅ Load branches from Supabase
   useEffect(() => {
@@ -46,12 +196,17 @@ export default function Signup() {
       if (error) {
         console.error("Error fetching branches:", error);
       } else {
-        setBranches(data || []);
+        // setBranches(data || []);
       }
     };
 
-    if (stage === "details") fetchBranches();
+    if (stage === "credentials") fetchBranches();
   }, [stage]);
+
+  const formAnimStyle = useAnimatedStyle(() => ({
+    opacity: formOpacity.value,
+    transform: [{ translateY: formTranslateY.value }],
+  }));
 
   // ✅ Step 1: Email/password signup
   const handleSignup = async () => {
@@ -64,283 +219,998 @@ export default function Signup() {
       return;
     }
 
-    const memberEmail = email.includes("_member")
-      ? email
-      : email.replace("@", "_member@");
+    setIsLoading(true);
 
-    const { error } = await supabase.auth.signUp({
-      email: memberEmail,
-      password,
-      options: { data: { role: "MEMBER" } },
-    });
+    // TODO: Uncomment when ready to insert into database
+    // const { error } = await supabase.auth.signUp({
+    //   email,
+    //   password,
+    //   options: { data: { role: "MEMBER" } },
+    // });
 
-    if (error) {
-      Alert.alert("Signup failed", error.message);
-    } else {
-      Alert.alert(
-        "Verify Email",
-        "A verification link has been sent to your email. Once verified, please complete your account details."
-      );
-      setStage("details");
-    }
+    setIsLoading(false);
+
+    // if (error) {
+    //   Alert.alert("Signup failed", error.message);
+    // } else {
+      setSignupMethod("email");
+      setStage("otp");
+    // }
   };
 
   // ✅ Step 1 (alternative): Google OAuth signup
   const handleGoogleSignup = async () => {
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        // ensure Supabase redirects back to the app after OAuth
-        redirectTo: OAUTH_REDIRECT_URL,
-        queryParams: { access_type: "offline", prompt: "consent" },
-      },
-    });
+    setIsLoading(true);
+    
+    // TODO: Uncomment when ready to insert into database
+    // const { data, error } = await supabase.auth.signInWithOAuth({
+    //   provider: "google",
+    //   options: {
+    //     redirectTo: "exp://localhost:8081",
+    //     queryParams: { access_type: "offline", prompt: "consent" },
+    //   },
+    // });
 
-    if (error) {
-      Alert.alert("Google Sign-up Failed", error.message);
-      return;
-    }
+    setIsLoading(false);
 
-    // Open the OAuth URL in the system browser so the user can authenticate
-    if (data?.url) {
-      try {
-        await Linking.openURL(data.url);
-      } catch {
-        // Fallback: show URL so developer can open it manually
-        Alert.alert("Open browser failed", data.url);
-      }
-    }
+    // if (error) {
+    //   Alert.alert("Google Sign-up Failed", error.message);
+    //   return;
+    // }
+
+    // if (data?.url) {
+      setSignupMethod("google");
+      setStage("credentials");
+      // try {
+      //   await Linking.openURL(data.url);
+      // } catch {
+      //   Alert.alert("Open browser failed", data.url);
+      // }
+    // }
   };
 
-  // ✅ Step 2: Insert user details
-  const handleDetailsSubmit = async () => {
-    if (!firstName || !lastName || !gender || !branchId) {
+  // ✅ Step 2: Submit OTP
+  const handleOTPSubmit = () => {
+    if (otp.length !== 6 || !/^\d+$/.test(otp)) {
+      Alert.alert("Invalid OTP", "Please enter a valid 6-digit OTP.");
+      return;
+    }
+    setStage("credentials");
+  };
+
+  // ✅ Step 3: Submit credentials
+  const handleCredentialsSubmit = async () => {
+    if (!firstName || !lastName || !gender || !birthDate || !contactNumber) {
       Alert.alert("Missing Fields", "Please fill out all required fields.");
       return;
     }
 
-    try {
-      const { data: authData } = await supabase.auth.getUser();
-      const user = authData?.user;
-      if (!user) {
-        Alert.alert("Error", "User not authenticated.");
-        return;
-      }
-
-      const { error } = await supabase.from("users_details").insert([
-        {
-          branch_id: branchId,
-          first_name: firstName,
-          middle_name: middleName || null,
-          last_name: lastName,
-          suffix: suffix || null,
-          gender,
-          contact_number: contactNumber || null,
-          status: "ACTIVE",
-        },
-      ]);
-
-      if (error) throw error;
-
-      Alert.alert("Success!", "Account details saved successfully.");
-      router.replace("/login");
-    } catch (err: any) {
-      Alert.alert("Error", err.message);
-    }
+    setStage("address");
   };
 
-  // ======================================================
-  // RENDER: Account Details Form
-  // ======================================================
-  if (stage === "details") {
-    return (
-      <ScrollView
-        style={{ flex: 1, backgroundColor: "#0B6516", padding: 20 }}
-        contentContainerStyle={{ alignItems: "center", paddingBottom: 40 }}
-      >
-        <Text style={styles.header}>Account Setup</Text>
+  // ✅ Step 4: Submit address and complete signup
+  const handleAddressSubmit = () => {
+    if (!street || !region || !city || !province) {
+      Alert.alert("Missing Fields", "Please fill out all address fields.");
+      return;
+    }
 
-        {/* Branch Dropdown */}
-        <View style={styles.dropdown}>
-          <Picker
-            selectedValue={branchId}
-            onValueChange={(v: any) =>
-              setBranchId(v === null || v === undefined ? null : Number(v))
-            }
-            style={{ color: "black" }}
-          >
-            <Picker.Item label="Select Branch" value={null} />
-            {branches.map((b) => (
-              <Picker.Item key={b.branch_id} label={b.name} value={b.branch_id} />
-            ))}
-          </Picker>
-        </View>
+    router.replace("/login");
+  };
 
-        <TextInput
-          placeholder="First Name"
-          placeholderTextColor="#ccc"
-          style={styles.input}
-          onChangeText={setFirstName}
-          value={firstName}
+  const renderAuthStage = () => (
+    <Animated.View style={[formAnimStyle, { width: "100%", maxWidth: 420 }]}>
+      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+        EMAIL ADDRESS
+      </Text>
+      <View style={{ position: "relative", marginBottom: 20 }}>
+        <Ionicons
+          name="mail-outline"
+          size={20}
+          color={emailFocused ? primary : "#707070"}
+          style={{ position: "absolute", left: 16, top: 18, zIndex: 1 }}
         />
         <TextInput
-          placeholder="Middle Name"
-          placeholderTextColor="#ccc"
-          style={styles.input}
-          onChangeText={setMiddleName}
-          value={middleName}
+          placeholder="Enter your email"
+          placeholderTextColor="#707070"
+          style={{
+            backgroundColor: emailFocused ? "rgba(255,255,255,1)" : "rgba(255,255,255,0.95)",
+            borderRadius: 14,
+            paddingVertical: 18,
+            paddingLeft: 48,
+            paddingRight: 16,
+            fontSize: 15,
+            borderWidth: 2,
+            color: "#0a1612",
+            borderColor: emailFocused ? primary : "rgba(11,101,22,0.2)",
+            shadowColor: emailFocused ? primary : "transparent",
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.2,
+            shadowRadius: 8,
+            elevation: emailFocused ? 4 : 0,
+          }}
+          onChangeText={setEmail}
+          value={email}
+          keyboardType="email-address"
+          autoCapitalize="none"
+          onFocus={() => setEmailFocused(true)}
+          onBlur={() => setEmailFocused(false)}
+        />
+      </View>
+
+      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+        PASSWORD
+      </Text>
+      <View style={{ position: "relative", marginBottom: 20 }}>
+        <Ionicons
+          name="lock-closed-outline"
+          size={20}
+          color={passwordFocused ? primary : "#707070"}
+          style={{ position: "absolute", left: 16, top: 18, zIndex: 1 }}
         />
         <TextInput
-          placeholder="Last Name"
-          placeholderTextColor="#ccc"
-          style={styles.input}
-          onChangeText={setLastName}
-          value={lastName}
+          placeholder="Enter your password"
+          placeholderTextColor="#707070"
+          style={{
+            backgroundColor: passwordFocused ? "rgba(255,255,255,1)" : "rgba(255,255,255,0.95)",
+            borderRadius: 14,
+            paddingVertical: 18,
+            paddingLeft: 48,
+            paddingRight: 50,
+            fontSize: 15,
+            borderWidth: 2,
+            color: "#0a1612",
+            borderColor: passwordFocused ? primary : "rgba(11,101,22,0.2)",
+            shadowColor: passwordFocused ? primary : "transparent",
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.2,
+            shadowRadius: 8,
+            elevation: passwordFocused ? 4 : 0,
+          }}
+          onChangeText={setPassword}
+          value={password}
+          secureTextEntry={!showPassword}
+          onFocus={() => setPasswordFocused(true)}
+          onBlur={() => setPasswordFocused(false)}
         />
-
-        {/* Suffix */}
-        <View style={styles.dropdown}>
-          <Picker
-            selectedValue={suffix}
-            onValueChange={(v: any) => setSuffix(String(v))}
-            style={{ color: "black" }}
-          >
-            {suffixOptions.map((opt) => (
-              <Picker.Item key={opt} label={opt || "Select Suffix"} value={opt} />
-            ))}
-          </Picker>
-        </View>
-
-        {/* Gender */}
-        <View style={styles.dropdown}>
-          <Picker
-            selectedValue={gender}
-            onValueChange={(v: any) => setGender(String(v))}
-            style={{ color: "black" }}
-          >
-            <Picker.Item label="Select Gender" value="" />
-            {genderOptions.map((g) => (
-              <Picker.Item key={g} label={g} value={g} />
-            ))}
-          </Picker>
-        </View>
-
-        <TextInput
-          placeholder="Contact Number"
-          placeholderTextColor="#ccc"
-          style={styles.input}
-          onChangeText={setContactNumber}
-          value={contactNumber}
-          keyboardType="phone-pad"
-        />
-
-        <TouchableOpacity style={styles.redBtn} onPress={handleDetailsSubmit}>
-          <Text style={styles.btnText}>Save Details</Text>
+        <TouchableOpacity
+          onPress={() => setShowPassword(!showPassword)}
+          style={{ position: "absolute", right: 16, top: 18, zIndex: 1 }}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Ionicons
+            name={showPassword ? "eye-outline" : "eye-off-outline"}
+            size={22}
+            color={passwordFocused ? primary : "#707070"}
+          />
         </TouchableOpacity>
-      </ScrollView>
-    );
-  }
+      </View>
 
-  // ======================================================
-  // RENDER: Signup Stage
-  // ======================================================
-  return (
-    <View style={styles.container}>
-      <Text style={styles.header}>Create Account</Text>
+      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+        CONFIRM PASSWORD
+      </Text>
+      <View style={{ position: "relative", marginBottom: 28 }}>
+        <Ionicons
+          name="lock-closed-outline"
+          size={20}
+          color={confirmPasswordFocused ? primary : "#707070"}
+          style={{ position: "absolute", left: 16, top: 18, zIndex: 1 }}
+        />
+        <TextInput
+          placeholder="Confirm your password"
+          placeholderTextColor="#707070"
+          style={{
+            backgroundColor: confirmPasswordFocused ? "rgba(255,255,255,1)" : "rgba(255,255,255,0.95)",
+            borderRadius: 14,
+            paddingVertical: 18,
+            paddingLeft: 48,
+            paddingRight: 50,
+            fontSize: 15,
+            borderWidth: 2,
+            color: "#0a1612",
+            borderColor: confirmPasswordFocused ? primary : "rgba(11,101,22,0.2)",
+            shadowColor: confirmPasswordFocused ? primary : "transparent",
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.2,
+            shadowRadius: 8,
+            elevation: confirmPasswordFocused ? 4 : 0,
+          }}
+          onChangeText={setConfirmPassword}
+          value={confirmPassword}
+          secureTextEntry={!showConfirmPassword}
+          onFocus={() => setConfirmPasswordFocused(true)}
+          onBlur={() => setConfirmPasswordFocused(false)}
+        />
+        <TouchableOpacity
+          onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+          style={{ position: "absolute", right: 16, top: 18, zIndex: 1 }}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Ionicons
+            name={showConfirmPassword ? "eye-outline" : "eye-off-outline"}
+            size={22}
+            color={confirmPasswordFocused ? primary : "#707070"}
+          />
+        </TouchableOpacity>
+      </View>
 
-      <TouchableOpacity style={styles.googleBtn} onPress={handleGoogleSignup}>
-        <Text style={styles.btnText}>Sign up with Google</Text>
-      </TouchableOpacity>
-
-      <Text style={{ color: "white", marginVertical: 16 }}>— OR —</Text>
-
-      <TextInput
-        placeholder="Email"
-        placeholderTextColor="#ccc"
-        style={styles.input}
-        onChangeText={setEmail}
-        value={email}
-        keyboardType="email-address"
-      />
-      <TextInput
-        placeholder="Password"
-        placeholderTextColor="#ccc"
-        secureTextEntry
-        style={styles.input}
-        onChangeText={setPassword}
-        value={password}
-      />
-      <TextInput
-        placeholder="Confirm Password"
-        placeholderTextColor="#ccc"
-        secureTextEntry
-        style={styles.input}
-        onChangeText={setConfirmPassword}
-        value={confirmPassword}
-      />
-
-      <TouchableOpacity style={styles.redBtn} onPress={handleSignup}>
-        <Text style={styles.btnText}>Continue</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity onPress={() => router.replace("/login")}>
-        <Text style={{ color: "white", marginTop: 20 }}>
-          Already have an account?{" "}
-          <Text style={{ color: "#FFDCDC", fontWeight: "700" }}>Log in here</Text>
+      <TouchableOpacity
+        onPress={handleSignup}
+        disabled={isLoading}
+        style={{
+          backgroundColor: isLoading ? "#555" : secondary,
+          padding: 19,
+          borderRadius: 14,
+          alignItems: "center",
+          marginBottom: 24,
+          shadowColor: secondary,
+          shadowOffset: { width: 0, height: 6 },
+          shadowOpacity: 0.4,
+          shadowRadius: 12,
+          elevation: 6,
+        }}
+      >
+        <Text style={{ color: "#fff", fontWeight: "800", fontSize: 16, letterSpacing: 1.5 }}>
+          {isLoading ? "CREATING ACCOUNT..." : "CONTINUE"}
         </Text>
       </TouchableOpacity>
-    </View>
+
+      <View style={{ flexDirection: "row", alignItems: "center", marginVertical: 22 }}>
+        <View style={{ flex: 1, height: 1, backgroundColor: "rgba(200,200,200,0.25)" }} />
+        <Text style={{ color: "#B0B0B0", paddingHorizontal: 14, fontSize: 12, fontWeight: "700", letterSpacing: 1 }}>OR</Text>
+        <View style={{ flex: 1, height: 1, backgroundColor: "rgba(200,200,200,0.25)" }} />
+      </View>
+
+      <TouchableOpacity
+        onPress={handleGoogleSignup}
+        disabled={isLoading}
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: "#ffffff",
+          borderRadius: 14,
+          paddingVertical: 16,
+          paddingHorizontal: 20,
+          shadowColor: "#000",
+          shadowOpacity: 0.18,
+          shadowRadius: 8,
+          shadowOffset: { width: 0, height: 4 },
+          elevation: 5,
+          borderWidth: 1,
+          borderColor: "rgba(0,0,0,0.05)",
+          opacity: isLoading ? 0.6 : 1,
+        }}
+      >
+        <Svg width={26} height={26} viewBox="0 0 24 24" style={{ marginRight: 12 }}>
+          <Path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
+          <Path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
+          <Path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC04" />
+          <Path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
+        </Svg>
+        <Text style={{ color: "#333", fontWeight: "700", fontSize: 15, letterSpacing: 0.5 }}>Sign up with Google</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity onPress={() => router.replace("/login")} style={{ alignItems: "center", marginTop: 28 }}>
+        <Text style={{ color: "#CCCCCC", fontSize: 14 }}>
+          Already have an account? <Text style={{ color: secondary, fontWeight: "700", letterSpacing: 0.5 }}>Log in here</Text>
+        </Text>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+
+  const renderCredentialsStage = () => (
+    <Animated.View style={[formAnimStyle, { width: "100%", maxWidth: 420 }]}>
+      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+        FIRST NAME *
+      </Text>
+      <TextInput
+        placeholder="Enter your first name"
+        placeholderTextColor="#707070"
+        style={{
+          backgroundColor: "rgba(255,255,255,0.95)",
+          borderRadius: 14,
+          paddingVertical: 14,
+          paddingHorizontal: 16,
+          fontSize: 15,
+          borderWidth: 2,
+          color: "#0a1612",
+          borderColor: "rgba(11,101,22,0.2)",
+          marginBottom: 16,
+        }}
+        onChangeText={setFirstName}
+        value={firstName}
+      />
+
+      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+        MIDDLE NAME
+      </Text>
+      <TextInput
+        placeholder="Enter your middle name"
+        placeholderTextColor="#707070"
+        style={{
+          backgroundColor: "rgba(255,255,255,0.95)",
+          borderRadius: 14,
+          paddingVertical: 14,
+          paddingHorizontal: 16,
+          fontSize: 15,
+          borderWidth: 2,
+          color: "#0a1612",
+          borderColor: "rgba(11,101,22,0.2)",
+          marginBottom: 16,
+        }}
+        onChangeText={setMiddleName}
+        value={middleName}
+      />
+
+      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+        LAST NAME *
+      </Text>
+      <TextInput
+        placeholder="Enter your last name"
+        placeholderTextColor="#707070"
+        style={{
+          backgroundColor: "rgba(255,255,255,0.95)",
+          borderRadius: 14,
+          paddingVertical: 14,
+          paddingHorizontal: 16,
+          fontSize: 15,
+          borderWidth: 2,
+          color: "#0a1612",
+          borderColor: "rgba(11,101,22,0.2)",
+          marginBottom: 16,
+        }}
+        onChangeText={setLastName}
+        value={lastName}
+      />
+
+      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+        SUFFIX
+      </Text>
+      <DropDownPicker
+        open={suffixOpen}
+        setOpen={setSuffixOpen}
+        value={suffix}
+        setValue={(callback) => {
+          setSuffix((prev) => callback(prev));
+        }}
+        items={["", "Jr.", "Sr.", "II", "III", "IV"].map(v => ({ label: v || "Select Suffix", value: v }))}
+        listMode="SCROLLVIEW"
+        style={{
+          backgroundColor: "rgba(255,255,255,0.95)",
+          borderRadius: 14,
+          borderWidth: 2,
+          borderColor: "rgba(11,101,22,0.2)",
+          paddingVertical: 2,
+        }}
+        textStyle={{ color: "#0a1612", fontSize: 15 }}
+        dropDownContainerStyle={{
+          backgroundColor: "rgba(255,255,255,0.95)",
+          borderWidth: 2,
+          borderColor: "rgba(11,101,22,0.2)",
+          borderRadius: 12,
+        }}
+        containerStyle={{ marginBottom: 16 }}
+        onOpen={() => setGenderOpen(false)}
+      />
+
+      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+        BIRTH DATE *
+      </Text>
+      <TouchableOpacity
+        onPress={() => setShowBirthDatePicker(true)}
+        style={{
+          backgroundColor: "rgba(255,255,255,0.95)",
+          borderRadius: 14,
+          paddingVertical: 14,
+          paddingHorizontal: 16,
+          borderWidth: 2,
+          borderColor: "rgba(11,101,22,0.2)",
+          marginBottom: 16,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <Text style={{ color: birthDate ? "#0a1612" : "#707070", fontSize: 15, fontWeight: "500" }}>
+          {birthDate ? new Date(birthDate).toLocaleDateString() : "Select birth date"}
+        </Text>
+        <Ionicons name="calendar-outline" size={20} color={primary} />
+      </TouchableOpacity>
+
+      {showBirthDatePicker && (
+        <DateTimePicker
+          value={birthDate ? new Date(birthDate) : new Date()}
+          mode="date"
+          maximumDate={new Date()}
+          onChange={(event: any, selectedDate?: Date) => {
+            if (event.type === "set" && selectedDate) {
+              setBirthDate(selectedDate.toISOString().split("T")[0]);
+            }
+            setShowBirthDatePicker(false);
+          }}
+        />
+      )}
+
+      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+        BAPTISMAL DATE (Optional - Leave blank if not baptised at EECM)
+      </Text>
+      <TouchableOpacity
+        onPress={() => setShowBaptismalDatePicker(true)}
+        style={{
+          backgroundColor: "rgba(255,255,255,0.95)",
+          borderRadius: 14,
+          paddingVertical: 14,
+          paddingHorizontal: 16,
+          borderWidth: 2,
+          borderColor: "rgba(11,101,22,0.2)",
+          marginBottom: 16,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <Text style={{ color: baptismalDate ? "#0a1612" : "#707070", fontSize: 15, fontWeight: "500" }}>
+          {baptismalDate ? new Date(baptismalDate).toLocaleDateString() : "Select baptismal date"}
+        </Text>
+        <Ionicons name="calendar-outline" size={20} color={primary} />
+      </TouchableOpacity>
+
+      {showBaptismalDatePicker && (
+        <DateTimePicker
+          value={baptismalDate ? new Date(baptismalDate) : new Date()}
+          mode="date"
+          maximumDate={new Date()}
+          onChange={(event: any, selectedDate?: Date) => {
+            if (event.type === "set" && selectedDate) {
+              setBaptismalDate(selectedDate.toISOString().split("T")[0]);
+            }
+            setShowBaptismalDatePicker(false);
+          }}
+        />
+      )}
+
+      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+        GENDER *
+      </Text>
+      <DropDownPicker
+        open={genderOpen}
+        setOpen={setGenderOpen}
+        value={gender}
+        setValue={(callback) => {
+          setGender((prev) => callback(prev));
+        }}
+        items={["Male", "Female"].map(v => ({ label: v, value: v }))}
+        listMode="SCROLLVIEW"
+        style={{
+          backgroundColor: "rgba(255,255,255,0.95)",
+          borderRadius: 14,
+          borderWidth: 2,
+          borderColor: "rgba(11,101,22,0.2)",
+          paddingVertical: 2,
+        }}
+        textStyle={{ color: "#0a1612", fontSize: 15 }}
+        dropDownContainerStyle={{
+          backgroundColor: "rgba(255,255,255,0.95)",
+          borderWidth: 2,
+          borderColor: "rgba(11,101,22,0.2)",
+          borderRadius: 12,
+        }}
+        containerStyle={{ marginBottom: 16 }}
+        onOpen={() => setSuffixOpen(false)}
+      />
+
+      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+        CONTACT NUMBER *
+      </Text>
+      <TextInput
+        placeholder="+63 9XX XXX XXXX"
+        placeholderTextColor="#707070"
+        style={{
+          backgroundColor: "rgba(255,255,255,0.95)",
+          borderRadius: 14,
+          paddingVertical: 14,
+          paddingHorizontal: 16,
+          fontSize: 15,
+          borderWidth: 2,
+          color: "#0a1612",
+          borderColor: "rgba(11,101,22,0.2)",
+          marginBottom: 24,
+        }}
+        onChangeText={(text) => setContactNumber(formatPhilippinePhone(text))}
+        value={contactNumber}
+        keyboardType="phone-pad"
+      />
+
+      <TouchableOpacity
+        onPress={handleCredentialsSubmit}
+        disabled={isLoading}
+        style={{
+          backgroundColor: isLoading ? "#555" : secondary,
+          padding: 19,
+          borderRadius: 14,
+          alignItems: "center",
+          marginBottom: 12,
+          shadowColor: secondary,
+          shadowOffset: { width: 0, height: 6 },
+          shadowOpacity: 0.4,
+          shadowRadius: 12,
+          elevation: 6,
+        }}
+      >
+        <Text style={{ color: "#fff", fontWeight: "800", fontSize: 16, letterSpacing: 1.5 }}>
+          CONTINUE
+        </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        onPress={() => setStage("auth")}
+        style={{
+          backgroundColor: "rgba(255,255,255,0.1)",
+          padding: 14,
+          borderRadius: 14,
+          alignItems: "center",
+          borderWidth: 1,
+          borderColor: "rgba(255,255,255,0.2)",
+        }}
+      >
+        <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14, letterSpacing: 1 }}>
+          BACK
+        </Text>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+
+  const renderAddressStage = () => (
+    <Animated.View style={[formAnimStyle, { width: "100%", maxWidth: 420 }]}>
+      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+        STREET ADDRESS *
+      </Text>
+      <TextInput
+        placeholder="Enter street address"
+        placeholderTextColor="#707070"
+        style={{
+          backgroundColor: "rgba(255,255,255,0.95)",
+          borderRadius: 14,
+          paddingVertical: 14,
+          paddingHorizontal: 16,
+          fontSize: 15,
+          borderWidth: 2,
+          color: "#0a1612",
+          borderColor: "rgba(11,101,22,0.2)",
+          marginBottom: 16,
+        }}
+        onChangeText={setStreet}
+        value={street}
+      />
+
+      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+        REGION *
+      </Text>
+      <View style={{ zIndex: activeAddressDropdown === "region" ? 5000 : 4000, marginBottom: 16 }}>
+        <DropDownPicker
+          open={regionOpen}
+          setOpen={setRegionOpen}
+          value={region}
+          setValue={(callback) => {
+        setRegion((prev) => callback(prev));
+          }}
+          items={regionOptions}
+          placeholder="Select Region"
+          listMode="SCROLLVIEW"
+          style={{
+        backgroundColor: "rgba(255,255,255,0.95)",
+        borderRadius: 14,
+        borderWidth: 2,
+        borderColor: "rgba(11,101,22,0.2)",
+        paddingVertical: 2,
+          }}
+          textStyle={{ color: "#0a1612", fontSize: 15 }}
+          dropDownContainerStyle={{
+        backgroundColor: "rgba(255,255,255,0.95)",
+        borderWidth: 2,
+        borderColor: "rgba(11,101,22,0.2)",
+        borderRadius: 12,
+          }}
+          onOpen={() => {
+        setActiveAddressDropdown("region");
+        setProvinceOpen(false);
+        setCityOpen(false);
+        setBarangayOpen(false);
+          }}
+          onClose={() => {
+        setActiveAddressDropdown(null);
+          }}
+        />
+      </View>
+
+      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+        PROVINCE *
+      </Text>
+      <View style={{ zIndex: activeAddressDropdown === "province" ? 5000 : 1000, marginBottom: 16 }}>
+        <DropDownPicker
+          open={provinceOpen}
+          setOpen={setProvinceOpen}
+          value={province}
+          setValue={(callback) => {
+            setProvince((prev) => callback(prev));
+          }}
+          items={provinceOptions}
+          disabled={!region}
+          placeholder={!region ? "Select a region first" : "Select Province"}
+          listMode="SCROLLVIEW"
+          style={{
+            backgroundColor: "rgba(255,255,255,0.95)",
+            borderRadius: 14,
+            borderWidth: 2,
+            borderColor: region ? "rgba(11,101,22,0.2)" : "rgba(200,0,0,0.3)",
+            paddingVertical: 2,
+          }}
+          textStyle={{ color: "#0a1612", fontSize: 15 }}
+          labelStyle={{ color: "#0a1612", fontSize: 15 }}
+          dropDownContainerStyle={{
+            backgroundColor: "rgba(255,255,255,0.95)",
+            borderWidth: 2,
+            borderColor: "rgba(11,101,22,0.2)",
+            borderRadius: 12,
+          }}
+          onOpen={() => {
+            setActiveAddressDropdown("province");
+            setRegionOpen(false);
+            setCityOpen(false);
+            setBarangayOpen(false);
+          }}
+          onClose={() => {
+            setActiveAddressDropdown(null);
+          }}
+        />
+      </View>
+
+      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+        CITY *
+      </Text>
+      <View style={{ zIndex: activeAddressDropdown === "city" ? 5000 : 500, marginBottom: 16 }}>
+        <DropDownPicker
+          open={cityOpen}
+          setOpen={setCityOpen}
+          value={city}
+          setValue={(callback) => {
+            setCity((prev) => callback(prev));
+          }}
+          items={cityOptions}
+          disabled={!province}
+          placeholder="Select City"
+          listMode="SCROLLVIEW"
+          style={{
+            backgroundColor: "rgba(255,255,255,0.95)",
+            borderRadius: 14,
+            borderWidth: 2,
+            borderColor: "rgba(11,101,22,0.2)",
+            paddingVertical: 2,
+          }}
+          textStyle={{ color: "#0a1612", fontSize: 15 }}
+          dropDownContainerStyle={{
+            backgroundColor: "rgba(255,255,255,0.95)",
+            borderWidth: 2,
+            borderColor: "rgba(11,101,22,0.2)",
+            borderRadius: 12,
+          }}
+          onOpen={() => {
+            setActiveAddressDropdown("city");
+            setRegionOpen(false);
+            setProvinceOpen(false);
+            setBarangayOpen(false);
+          }}
+          onClose={() => {
+            setActiveAddressDropdown(null);
+          }}
+        />
+      </View>
+
+      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+        BARANGAY
+      </Text>
+      <View style={{ zIndex: activeAddressDropdown === "barangay" ? 5000 : 3000, marginBottom: 16 }}>
+        <DropDownPicker
+          open={barangayOpen}
+          setOpen={setBarangayOpen}
+          value={barangay}
+          setValue={(callback) => {
+            setBarangay((prev) => callback(prev));
+          }}
+          items={barangayOptions}
+          disabled={!city}
+          placeholder="Select Barangay"
+          listMode="SCROLLVIEW"
+          style={{
+            backgroundColor: "rgba(255,255,255,0.95)",
+            borderRadius: 14,
+            borderWidth: 2,
+            borderColor: "rgba(11,101,22,0.2)",
+            paddingVertical: 2,
+          }}
+          textStyle={{ color: "#0a1612", fontSize: 15 }}
+          dropDownContainerStyle={{
+            backgroundColor: "rgba(255,255,255,0.95)",
+            borderWidth: 2,
+            borderColor: "rgba(11,101,22,0.2)",
+            borderRadius: 12,
+          }}
+          onOpen={() => {
+            setActiveAddressDropdown("barangay");
+            setRegionOpen(false);
+            setProvinceOpen(false);
+            setCityOpen(false);
+          }}
+          onClose={() => {
+            setActiveAddressDropdown(null);
+          }}
+        />
+      </View>
+
+
+      <TouchableOpacity
+        onPress={handleAddressSubmit}
+        disabled={isLoading}
+        style={{
+          backgroundColor: isLoading ? "#555" : secondary,
+          padding: 19,
+          borderRadius: 14,
+          alignItems: "center",
+          marginBottom: 12,
+          shadowColor: secondary,
+          shadowOffset: { width: 0, height: 6 },
+          shadowOpacity: 0.4,
+          shadowRadius: 12,
+          elevation: 6,
+        }}
+      >
+        <Text style={{ color: "#fff", fontWeight: "800", fontSize: 16, letterSpacing: 1.5 }}>
+          {isLoading ? "COMPLETING..." : "COMPLETE SIGNUP"}
+        </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        onPress={() => setStage("credentials")}
+        style={{
+          backgroundColor: "rgba(255,255,255,0.1)",
+          padding: 14,
+          borderRadius: 14,
+          alignItems: "center",
+          borderWidth: 1,
+          borderColor: "rgba(255,255,255,0.2)",
+        }}
+      >
+        <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14, letterSpacing: 1 }}>
+          BACK
+        </Text>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+
+  const renderOTPStage = () => (
+    <Animated.View style={[formAnimStyle, { width: "100%", maxWidth: 420, alignItems: "center" }]}>
+      <Text style={{ color: "#FFFFFF", fontSize: 20, fontWeight: "700", marginBottom: 16, textAlign: "center" }}>
+        Email Verification
+      </Text>
+      <Text style={{ color: "#B0B0B0", fontSize: 14, marginBottom: 32, textAlign: "center", lineHeight: 20 }}>
+        A 6-digit OTP has been sent to {email}. Please enter it below to continue.
+      </Text>
+
+      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 20, letterSpacing: 1.2 }}>
+        OTP CODE *
+      </Text>
+      <View style={{ flexDirection: "row", justifyContent: "center", marginBottom: 28, gap: 8 }}>
+        {Array.from({ length: 6 }).map((_, index) => (
+          <TextInput
+            key={index}
+            ref={(ref) => {
+              if (ref) otpRefs.current[index] = ref;
+            }}
+            placeholder="0"
+            placeholderTextColor="#B0B0B0"
+            style={{
+              width: 50,
+              height: 60,
+              backgroundColor: "rgba(255,255,255,0.95)",
+              borderRadius: 12,
+              borderWidth: 2,
+              borderColor: otp[index] ? primary : "rgba(11,101,22,0.2)",
+              fontSize: 24,
+              fontWeight: "700",
+              color: "#0a1612",
+              textAlign: "center",
+              shadowColor: otp[index] ? primary : "transparent",
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.2,
+              shadowRadius: 4,
+              elevation: otp[index] ? 2 : 0,
+            }}
+            onChangeText={(text) => {
+              const digits = otp.split("");
+              digits[index] = text.replace(/[^0-9]/g, "").slice(0, 1);
+              setOtp(digits.join(""));
+
+              // Auto-focus to next box if digit entered
+              if (text && index < 5) {
+                otpRefs.current[index + 1]?.focus();
+              }
+              // Auto-focus to previous box if deleted
+              if (!text && index > 0) {
+                otpRefs.current[index - 1]?.focus();
+              }
+            }}
+            value={otp[index] || ""}
+            keyboardType="numeric"
+            maxLength={1}
+          />
+        ))}
+      </View>
+
+      <TouchableOpacity
+        onPress={handleOTPSubmit}
+        disabled={otp.length !== 6}
+        style={{
+          backgroundColor: otp.length === 6 ? secondary : "#999",
+          padding: 19,
+          borderRadius: 14,
+          alignItems: "center",
+          width: "100%",
+          marginBottom: 12,
+          shadowColor: secondary,
+          shadowOffset: { width: 0, height: 6 },
+          shadowOpacity: 0.4,
+          shadowRadius: 12,
+          elevation: 6,
+        }}
+      >
+        <Text style={{ color: "#fff", fontWeight: "800", fontSize: 16, letterSpacing: 1.5 }}>
+          SUBMIT OTP
+        </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        onPress={() => setStage("auth")}
+        style={{
+          backgroundColor: "rgba(255,255,255,0.1)",
+          padding: 14,
+          borderRadius: 14,
+          alignItems: "center",
+          width: "100%",
+          borderWidth: 1,
+          borderColor: "rgba(255,255,255,0.2)",
+        }}
+      >
+        <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14, letterSpacing: 1 }}>
+          BACK
+        </Text>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+
+  return (
+    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
+      <ScrollView 
+        contentContainerStyle={{ flexGrow: 1 }} 
+        keyboardShouldPersistTaps="handled"
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "#0a1612",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 24,
+            minHeight: height,
+          }}
+        >
+          {/* Background gradient */}
+          <Svg width={width} height={height} style={{ position: "absolute" }}>
+            <Defs>
+              <LinearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                <Stop offset="0%" stopColor={primary} stopOpacity="0.25" />
+                <Stop offset="30%" stopColor="#0a1612" stopOpacity="0.95" />
+                <Stop offset="70%" stopColor="#0a1612" stopOpacity="0.95" />
+                <Stop offset="100%" stopColor={secondary} stopOpacity="0.25" />
+              </LinearGradient>
+            </Defs>
+            <Rect width={width} height={height} fill="url(#bgGradient)" />
+          </Svg>
+
+          {/* Header */}
+          <View style={{ marginBottom: 40, alignItems: "center" }}>
+            {/* Logo Section with Diamond Border */}
+            {logo ? (
+              <View
+                style={{
+                  width: 100,
+                  height: 100,
+                  justifyContent: "center",
+                  alignItems: "center",
+                  transform: [{ rotate: "45deg" }],
+                  marginBottom: 16,
+                }}
+              >
+                <Svg width={100} height={100} viewBox="0 0 200 200" style={{ position: "absolute" }}>
+                  <Defs>
+                    <LinearGradient id="diamondBorderGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.95" />
+                      <Stop offset="25%" stopColor={tertiary} stopOpacity="0.95" />
+                      <Stop offset="50%" stopColor={secondary} stopOpacity="0.95" />
+                      <Stop offset="75%" stopColor={primary} stopOpacity="1" />
+                      <Stop offset="100%" stopColor="#FFFFFF" stopOpacity="0.8" />
+                    </LinearGradient>
+                  </Defs>
+                  <Path
+                    d="M 100 10 L 190 100 L 100 190 L 10 100 Z"
+                    stroke="url(#diamondBorderGrad)"
+                    strokeWidth="6"
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </Svg>
+                <View
+                  style={{
+                    width: 70,
+                    height: 70,
+                    overflow: "hidden",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    transform: [{ rotate: "-45deg" }],
+                    backgroundColor: "rgba(255,255,255,0.05)",
+                    borderRadius: 8,
+                  }}
+                >
+                  <Text allowFontScaling={false}>
+                    <Svg width={60} height={60} viewBox="0 0 60 60">
+                  <Image
+                    href={logo}
+                    x="0"
+                    y="0"
+                    width="60"
+                    height="60"
+                    preserveAspectRatio="xMidYMid slice"
+                  />
+                    </Svg>
+                  </Text>
+                </View>
+              </View>
+            ) : null}
+
+            <Text
+              style={{
+                color: "#FFFFFF",
+                fontSize: 36,
+                fontWeight: "800",
+                letterSpacing: 4,
+                textShadowColor: `${primary}dd`,
+                textShadowOffset: { width: 0, height: 4 },
+                textShadowRadius: 12,
+              }}
+            >
+              {systemName}
+            </Text>
+            <Text
+              style={{
+                color: "#B0B0B0",
+                fontSize: 12,
+                marginTop: 8,
+                letterSpacing: 2.5,
+                fontWeight: "500",
+              }}
+            >
+              {stage === "auth" ? "CREATE ACCOUNT" : stage === "credentials" ? "YOUR DETAILS" : stage === "address" ? "ADDRESS DETAILS" : "VERIFY EMAIL"}
+            </Text>
+          </View>
+
+          {/* Dynamic Stage Rendering */}
+          {stage === "auth" && renderAuthStage()}
+          {stage === "credentials" && renderCredentialsStage()}
+          {stage === "address" && renderAddressStage()}
+          {stage === "otp" && renderOTPStage()}
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
-
-// ======================================================
-// Styles
-// ======================================================
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#0B6516",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20,
-  },
-  header: {
-    color: "white",
-    fontSize: 28,
-    fontWeight: "800" as any,
-    marginBottom: 20,
-  },
-  input: {
-    width: "100%",
-    backgroundColor: "white",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-  },
-  dropdown: {
-    width: "100%",
-    backgroundColor: "white",
-    borderRadius: 8,
-    marginBottom: 12,
-  },
-  redBtn: {
-    width: "100%",
-    backgroundColor: "#9C0808",
-    padding: 14,
-    borderRadius: 8,
-    alignItems: "center" as any,
-    marginTop: 10,
-  },
-  googleBtn: {
-    width: "100%",
-    backgroundColor: "#DB4437",
-    padding: 14,
-    borderRadius: 8,
-    alignItems: "center" as any,
-  },
-  btnText: {
-    color: "white",
-    fontWeight: "600" as any,
-    fontSize: 16,
-  },
-}) as any;
