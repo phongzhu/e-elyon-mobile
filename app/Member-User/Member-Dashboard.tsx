@@ -6,17 +6,17 @@ import { router } from "expo-router";
 import QRCode from "qrcode";
 import React, { useEffect, useRef, useState } from "react";
 import {
-    Animated,
-    Dimensions,
-    Image,
-    Modal,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Animated,
+  Dimensions,
+  Image,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SvgXml } from "react-native-svg";
 import { supabase } from "../../src/lib/supabaseClient";
@@ -1393,7 +1393,13 @@ export default function MemberDashboard() {
             ].map((a, idx) => (
               <TouchableOpacity 
                 key={idx} 
-                style={[styles.actionChip, { borderColor: activeFilter === a.label ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.3)" }]} 
+                style={[
+                  styles.actionChip, 
+                  { 
+                    borderColor: activeFilter === a.label ? secondary : "rgba(255,255,255,0.3)",
+                    backgroundColor: activeFilter === a.label ? secondary : "transparent"
+                  }
+                ]} 
                 activeOpacity={0.8}
                 onPress={() => {
                   const nextFilter = activeFilter === a.label ? null : a.label;
@@ -1405,7 +1411,7 @@ export default function MemberDashboard() {
                   }
                 }}
               >
-                <View style={[styles.actionChipIcon, { backgroundColor: activeFilter === a.label ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.2)" }]}>
+                <View style={[styles.actionChipIcon, { backgroundColor: activeFilter === a.label ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.2)" }]}>
                   <Ionicons name={a.icon as any} size={18} color="#fff" />
                 </View>
                 <Text style={[styles.actionChipText, { color: "#fff" }]}>{a.label}</Text>
@@ -1553,6 +1559,7 @@ export default function MemberDashboard() {
               <TouchableOpacity 
                 style={[styles.announcementCard, { backgroundColor: '#ffffff', borderColor: '#e0e0e0', borderWidth: 1.5 }]} 
                 activeOpacity={0.9}
+                onPress={() => router.push('/Member-User/event-details')}
               >
                 <Image 
                   source={{ uri: 'https://drive.google.com/uc?export=view&id=1d8S_sZ6ZX905mPh_amnwDTUQ54oki4Rh' }}
@@ -1575,6 +1582,7 @@ export default function MemberDashboard() {
               <TouchableOpacity
                 style={[styles.announcementCard, { backgroundColor: '#ffffff', borderColor: '#e0e0e0', borderWidth: 1.5 }]}
                 activeOpacity={0.9}
+                onPress={() => router.push('/Member-User/event-details')}
               >
                 <Image 
                   source={{ uri: 'https://drive.google.com/uc?export=view&id=1xYi-ocCx6p7-hfS8drA6pr1TcCBTUUEz' }}
@@ -1618,7 +1626,11 @@ export default function MemberDashboard() {
               style={styles.eventScroll}
               contentContainerStyle={{ paddingRight: 16 }}
             >
-              <TouchableOpacity style={[styles.eventCard, { backgroundColor: '#ffffff', borderColor: '#e0e0e0', borderWidth: 1.5 }]} activeOpacity={0.9}>
+              <TouchableOpacity 
+                style={[styles.eventCard, { backgroundColor: '#ffffff', borderColor: '#e0e0e0', borderWidth: 1.5 }]} 
+                activeOpacity={0.9}
+                onPress={() => router.push('/Member-User/event-details')}
+              >
                 <Image 
                   source={{ uri: 'https://drive.google.com/uc?export=view&id=1Kaz4zQbcBoOQlNXtpBaxrupkp5ACrnJF' }}
                   style={styles.eventImage}
@@ -1639,7 +1651,11 @@ export default function MemberDashboard() {
                   </View>
                 </View>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.eventCard, { backgroundColor: '#ffffff', borderColor: '#e0e0e0', borderWidth: 1.5 }]} activeOpacity={0.9}>
+              <TouchableOpacity 
+                style={[styles.eventCard, { backgroundColor: '#ffffff', borderColor: '#e0e0e0', borderWidth: 1.5 }]} 
+                activeOpacity={0.9}
+                onPress={() => router.push('/Member-User/event-details')}
+              >
                 <Image 
                   source={{ uri: 'https://drive.google.com/uc?export=view&id=1jN5y5v_vHMp5XH6Uo8EGbUT1HIjBtMGA' }}
                   style={styles.eventImage}
@@ -1704,6 +1720,11 @@ export default function MemberDashboard() {
                       ]}
                       activeOpacity={0.7}
                       disabled={!inMonth}
+                      onPress={() => {
+                        if (isEvent && inMonth) {
+                          router.push('/Member-User/event-details');
+                        }
+                      }}
                     >
                       <Text style={[
                         styles.calendarDayText, 
