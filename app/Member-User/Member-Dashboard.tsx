@@ -4,7 +4,7 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 import * as Location from "expo-location";
 import { router } from "expo-router";
 import QRCode from "qrcode";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Dimensions,
@@ -26,6 +26,17 @@ const { width } = Dimensions.get("window");
 
 // Keep a per-session flag so we only prompt once after login until the app is restarted or the user logs out.
 let hasPromptedLocationThisSession = false;
+
+type CalendarEvent = {
+  day: number;
+  title: string;
+  date: string;
+  time: string;
+  location: string;
+  summary: string;
+  image: string;
+  tag?: string;
+};
 
 // Filter View Components
 const AttendanceView = ({ branding }: { branding: any }) => {
@@ -851,6 +862,8 @@ export default function MemberDashboard() {
   const [showLocationModal, setShowLocationModal] = useState(false);
   const [showGeoAttendanceModal, setShowGeoAttendanceModal] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [selectedCalendarEvent, setSelectedCalendarEvent] = useState<CalendarEvent | null>(null);
+  const [showCalendarPreview, setShowCalendarPreview] = useState(false);
   const [qrSvg, setQrSvg] = useState("");
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const [openCounselingForm, setOpenCounselingForm] = useState(false);
@@ -913,6 +926,52 @@ export default function MemberDashboard() {
     latitude: 14.7792,
     longitude: 120.9817,
     radiusMeters: 120,
+  };
+
+  const calendarEvents = useMemo<CalendarEvent[]>(() => [
+    {
+      day: 17,
+      title: "Worship Night",
+      date: "July 17, 2024",
+      time: "6:00 PM - 8:00 PM",
+      location: "Main Sanctuary",
+      summary: "An acoustic worship set with space for prayer, reflection, and communion together.",
+      image: "https://drive.google.com/file/d/15BA5mR43FgZgL_siHe3i9ULTwu78f2VZ/view?usp=drive_link",
+      tag: "Worship",
+    },
+    {
+      day: 18,
+      title: "Paskong EECM - Sambang Gabi",
+      date: "July 18, 2024",
+      time: "7:30 PM - 9:00 PM",
+      location: "San Roque Campus",
+      summary: "Spared and Blesses to be a Blessing - A night of worship, reflection, and celebration as we prepare our hearts for the Christmas season.",
+      image: "https://scontent.fmnl9-5.fna.fbcdn.net/v/t1.15752-9/598340466_2965762010289105_2733580117442302736_n.jpg?_nc_cat=109&ccb=1-7&_nc_sid=9f807c&_nc_eui2=AeGZS3JcfouPoS3iBN1jvDQePvloqZdkOQ8--Wipl2Q5D07Hni0t6yYj-WqFcuIbhJ7Yd-hYHW4hgiZDDU5RYGpM&_nc_ohc=l3B_vdrnSmgQ7kNvwFindhJ&_nc_oc=Adm4gAcCGI45yOcNWt9KkUoiHX_lJf3Yg5RZmWkMZ67QigiNMK-uAL5RoiRPm9cXqjQ&_nc_zt=23&_nc_ht=scontent.fmnl9-5.fna&oh=03_Q7cD4AEFKCiSzATB1P80Z1Wxnx0lOGhVIsCxIoC_dyEjZ8gVWQ&oe=6968DC95",
+      tag: "Worship",
+    },
+    {
+      day: 19,
+      title: "Service Sunday",
+      date: "July 19, 2024",
+      time: "9:00 AM - 11:30 AM",
+      location: "Bustos Campus",
+      summary: "A family-friendly service with kids choir, testimonies, and a short message.",
+      image: "https://scontent.fmnl9-4.fna.fbcdn.net/v/t1.15752-9/597609743_1149142690324644_3441941934777869070_n.jpg?_nc_cat=105&ccb=1-7&_nc_sid=9f807c&_nc_eui2=AeHSfavVT2lTSiTACW8ZktF4dzN4UaEgIoZ3M3hRoSAihrDX-NMseikRVWg8OpObi68TICvMw7hmfuOcBiOSWbvu&_nc_ohc=paegu3jYPloQ7kNvwFLM8jK&_nc_oc=AdnRGASIYOFBte1SZxZ3G9tgQoYSYPyE2Lp9Q4m2LgfdXGP3GNEAJRLie2WfSfR3DqI&_nc_zt=23&_nc_ht=scontent.fmnl9-4.fna&oh=03_Q7cD4AF78m_KJX6e67WoVCbdVGqvOpHIO7-fJhPveufZb-Vdeg&oe=6968D7AC",
+      tag: "Family",
+    },
+  ], []);
+
+  const calendarEventLookup = useMemo(() => {
+    const lookup: Record<number, CalendarEvent> = {};
+    calendarEvents.forEach((event) => {
+      lookup[event.day] = event;
+    });
+    return lookup;
+  }, [calendarEvents]);
+
+  const closeCalendarPreview = () => {
+    setShowCalendarPreview(false);
+    setSelectedCalendarEvent(null);
   };
 
   useEffect(() => {
@@ -1708,7 +1767,8 @@ export default function MemberDashboard() {
                 {Array.from({ length: 35 }).map((_, idx) => {
                   const day = idx + 1;
                   const inMonth = day > 0 && day <= 30;
-                  const isEvent = [17,18,19].includes(day);
+                  const eventForDay = calendarEventLookup[day];
+                  const isEvent = !!eventForDay;
                   const isToday = day === 15;
                   return (
                     <TouchableOpacity 
@@ -1721,8 +1781,9 @@ export default function MemberDashboard() {
                       activeOpacity={0.7}
                       disabled={!inMonth}
                       onPress={() => {
-                        if (isEvent && inMonth) {
-                          router.push('/Member-User/event-details');
+                        if (isEvent && inMonth && eventForDay) {
+                          setSelectedCalendarEvent(eventForDay);
+                          setShowCalendarPreview(true);
                         }
                       }}
                     >
@@ -1742,6 +1803,53 @@ export default function MemberDashboard() {
             </View>
           </View>
         </AnimatedCard>
+
+        <Modal
+          visible={showCalendarPreview && !!selectedCalendarEvent}
+          transparent
+          animationType="fade"
+          onRequestClose={closeCalendarPreview}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.eventPreviewCard, { borderColor: `${primary}25` }]}>
+              <TouchableOpacity style={styles.closeButton} onPress={closeCalendarPreview}>
+                <Ionicons name="close" size={22} color="#1a1a1a" />
+              </TouchableOpacity>
+              {selectedCalendarEvent?.image ? (
+                <Image source={{ uri: selectedCalendarEvent.image }} style={styles.eventPreviewImage} />
+              ) : null}
+              <View style={styles.eventPreviewBody}>
+                {selectedCalendarEvent?.tag ? (
+                  <View style={[styles.eventPreviewTag, { backgroundColor: `${secondary}20` }]}> 
+                    <Text style={[styles.eventPreviewTagText, { color: secondary }]}>{selectedCalendarEvent.tag}</Text>
+                  </View>
+                ) : null}
+                <Text style={styles.eventPreviewTitle}>{selectedCalendarEvent?.title}</Text>
+                <Text style={styles.eventPreviewSummary}>{selectedCalendarEvent?.summary}</Text>
+                <View style={styles.eventPreviewMetaRow}>
+                  <Ionicons name="calendar-outline" size={16} color="#1a1a1a" />
+                  <Text style={styles.eventPreviewMetaText}>{selectedCalendarEvent?.date}</Text>
+                </View>
+                <View style={styles.eventPreviewMetaRow}>
+                  <Ionicons name="time-outline" size={16} color="#1a1a1a" />
+                  <Text style={styles.eventPreviewMetaText}>{selectedCalendarEvent?.time}</Text>
+                </View>
+                <View style={styles.eventPreviewMetaRow}>
+                  <Ionicons name="location-outline" size={16} color="#1a1a1a" />
+                  <Text style={styles.eventPreviewMetaText}>{selectedCalendarEvent?.location}</Text>
+                </View>
+                <View style={styles.eventPreviewActions}>
+                  <TouchableOpacity
+                    style={[styles.eventPreviewButton, { backgroundColor: primary }]}
+                    onPress={closeCalendarPreview}
+                  >
+                    <Text style={styles.eventPreviewButtonText}>Close</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </View>
+        </Modal>
 
         <View style={{ height: 20 }} />
       </Animated.ScrollView>
@@ -2205,6 +2313,70 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     marginBottom: 24,
+  },
+  eventPreviewCard: {
+    width: '92%',
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    borderWidth: 1,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  eventPreviewImage: {
+    width: '100%',
+    height: 180,
+  },
+  eventPreviewBody: {
+    padding: 16,
+  },
+  eventPreviewTag: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+    marginBottom: 10,
+  },
+  eventPreviewTagText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  eventPreviewTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#1a1a1a',
+  },
+  eventPreviewSummary: {
+    marginTop: 8,
+    fontSize: 13,
+    color: '#4f5d4f',
+    lineHeight: 19,
+  },
+  eventPreviewMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
+  },
+  eventPreviewMetaText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1a1a1a',
+  },
+  eventPreviewActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 16,
+  },
+  eventPreviewButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  eventPreviewButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
   },
   geofenceInfoBox: {
     width: '100%',

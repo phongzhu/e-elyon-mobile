@@ -87,12 +87,50 @@ export default function Login() {
   }));
 
   // Email/password login - Simple redirection based on email
-  const handleLogin = () => {
-    if (email === "member@gmail.com") {
-      router.replace("/Member-User/Member-Dashboard");
-    } else if (email === "qrmember@gmail.com") {
-      router.replace("/QR-User/QR-Dashboard");
+  const handleLogin = async () => {
+    setIsLoading(true);
+    try {
+      // Always append '_member' for member login (after full email)
+      const plainEmail = email.trim();
+      const memberEmail = plainEmail + '_member';
+      // Query users for is_active check using _member email
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('user_id, email, is_active')
+        .eq('email', memberEmail)
+        .single();
+      if (userError) {
+        setIsLoading(false);
+        alert('A system error occurred: ' + (userError.message || JSON.stringify(userError)));
+        return;
+      }
+      if (!userData) {
+        setIsLoading(false);
+        alert('Invalid Login Credentials');
+        return;
+      }
+      if (!userData.is_active) {
+        setIsLoading(false);
+        alert('Account is not active.');
+        return;
+      }
+      // Proceed with Supabase Auth sign in using plain email
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: plainEmail,
+        password,
+      });
+      if (signInError) {
+        setIsLoading(false);
+        alert('Invalid Login Credentials');
+        return;
+      }
+      // Redirect to member dashboard
+      router.replace('/Member-User/Member-Dashboard');
+    } catch (err) {
+      setIsLoading(false);
+      alert('An error occurred during login.');
     }
+    setIsLoading(false);
   };
 
   // Google OAuth Login - Simple redirection

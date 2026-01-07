@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
+import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
@@ -7,11 +8,12 @@ import {
   Dimensions,
   KeyboardAvoidingView,
   Platform,
+  Image as RNImage,
   ScrollView,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
 import DropDownPicker from "react-native-dropdown-picker";
 import Animated, {
@@ -20,7 +22,8 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
-import Svg, { Defs, Image, LinearGradient, Path, Rect, Stop } from "react-native-svg";
+import Svg, { Defs, LinearGradient, Path, Rect, Stop } from "react-native-svg";
+
 import philippineAddresses from "../src/data/philippine_provinces_cities_municipalities_and_barangays_2019v2.json";
 import { supabase } from "../src/lib/supabaseClient";
 
@@ -49,6 +52,8 @@ const formatPhilippinePhone = (value: string) => {
 };
 
 export default function Signup() {
+  const [profileImage, setProfileImage] = useState<string | null>(null);
+  const [profileImageUploading, setProfileImageUploading] = useState(false);
   const [stage, setStage] = useState<"auth" | "otp" | "credentials" | "address">("auth");
   const [signupMethod, setSignupMethod] = useState<"email" | "google">("email");
   const [branding, setBranding] = useState<any>(null);
@@ -74,9 +79,13 @@ export default function Signup() {
   const [baptismalDate, setBaptismalDate] = useState("");
   const [gender, setGender] = useState("");
   const [genderOpen, setGenderOpen] = useState(false);
+  const [branchId, setBranchId] = useState<number | null>(null);
+  const [branchName, setBranchName] = useState("");
+  const [branchOpen, setBranchOpen] = useState(false);
   const [contactNumber, setContactNumber] = useState("");
   const [showBirthDatePicker, setShowBirthDatePicker] = useState(false);
   const [showBaptismalDatePicker, setShowBaptismalDatePicker] = useState(false);
+  const [branches, setBranches] = useState<{ branch_id: number; name: string }[]>([]);
 
   // Address stage
   const [street, setStreet] = useState("");
@@ -187,18 +196,17 @@ export default function Signup() {
 
   // ✅ Load branches from Supabase
   useEffect(() => {
-    const fetchBranches = async () => {
-      const { data, error } = await supabase
-        .from("branches")
-        .select("branch_id, name")
-        .order("name", { ascending: true });
+     const fetchBranches = async () => {
+    const { data, error } = await supabase
+      .from("branches")
+      .select("branch_id, name");
 
-      if (error) {
-        console.error("Error fetching branches:", error);
-      } else {
-        // setBranches(data || []);
-      }
-    };
+    if (error) {
+      console.error("Error fetching branches:", error);
+    } else {
+      setBranches((data as { branch_id: number; name: string }[]) || []);
+    }
+  };
 
     if (stage === "credentials") fetchBranches();
   }, [stage]);
@@ -221,21 +229,24 @@ export default function Signup() {
 
     setIsLoading(true);
 
-    // TODO: Uncomment when ready to insert into database
-    // const { error } = await supabase.auth.signUp({
-    //   email,
-    //   password,
-    //   options: { data: { role: "MEMBER" } },
-    // });
+    // Send 6-digit OTP to email (and create user if not existing)
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        shouldCreateUser: true,
+      },
+    });
 
     setIsLoading(false);
 
-    // if (error) {
-    //   Alert.alert("Signup failed", error.message);
-    // } else {
-      setSignupMethod("email");
-      setStage("otp");
-    // }
+    if (error) {
+      Alert.alert("Failed to send code", error.message);
+      return;
+    }
+
+    setSignupMethod("email");
+    setOtp(""); // clear old input
+    setStage("otp");
   };
 
   // ✅ Step 1 (alternative): Google OAuth signup
@@ -275,16 +286,56 @@ export default function Signup() {
       Alert.alert("Invalid OTP", "Please enter a valid 6-digit OTP.");
       return;
     }
-    setStage("credentials");
+
+    setIsLoading(true);
+
+    // Verify OTP with Supabase
+    supabase.auth.verifyOtp({
+      email,
+      token: otp,
+      type: "email",
+    }).then(async ({ data, error }) => {
+      if (error) {
+        setIsLoading(false);
+        Alert.alert("OTP Failed", error.message);
+        return;
+      }
+
+      // Set password after OTP verification
+      const { error: pwError } = await supabase.auth.updateUser({
+        password,
+      });
+
+      setIsLoading(false);
+
+      if (pwError) {
+        Alert.alert("Password Setup Failed", pwError.message);
+        return;
+      }
+
+      setStage("credentials");
+    });
+  };
+
+  // Resend OTP handler
+  const handleResendOTP = async () => {
+    setIsLoading(true);
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { shouldCreateUser: true },
+    });
+    setIsLoading(false);
+
+    if (error) Alert.alert("Resend failed", error.message);
+    else Alert.alert("Sent", `A new code was sent to ${email}`);
   };
 
   // ✅ Step 3: Submit credentials
   const handleCredentialsSubmit = async () => {
-    if (!firstName || !lastName || !gender || !birthDate || !contactNumber) {
+    if (!firstName || !lastName || !gender || !birthDate || !contactNumber || !branchId) {
       Alert.alert("Missing Fields", "Please fill out all required fields.");
       return;
     }
-
     setStage("address");
   };
 
@@ -295,7 +346,124 @@ export default function Signup() {
       return;
     }
 
-    router.replace("/login");
+    setIsLoading(true);
+    (async () => {
+      try {
+        let photo_path = null;
+        // Upload profile image if selected
+        if (profileImage) {
+          try {
+            setProfileImageUploading(true);
+            const fileName = `${email.replace(/[^a-zA-Z0-9]/g, "_")}_${Date.now()}.jpg`;
+            const objectKey = `profile_pics/${fileName}`;
+            const fileUri = profileImage;
+            // Convert local file URI to ArrayBuffer
+            const res = (await fetch(fileUri));
+            const arrayBuffer = await res.arrayBuffer();
+            // Upload as binary into profile_pics/ folder
+            const { error: uploadError } = await supabase.storage
+              .from("profile_pics")
+              .upload(objectKey, arrayBuffer, {
+                contentType: "image/jpeg",
+                upsert: true,
+              });
+            setProfileImageUploading(false);
+            if (uploadError) {
+              Alert.alert("Image Upload Failed", uploadError.message);
+              return;
+            }
+            const { data: publicUrlData } = supabase.storage
+              .from("profile_pics")
+              .getPublicUrl(objectKey);
+            photo_path = publicUrlData?.publicUrl ?? null;
+          } catch (imgErr: any) {
+            setProfileImageUploading(false);
+            Alert.alert("Image Upload Error", imgErr?.message || "Failed to upload image.");
+            return;
+          }
+        }
+
+        // Insert into users_details, set joined_date to today
+        const today = new Date().toISOString().split('T')[0];
+        const { data: detailsData, error: detailsError } = await supabase
+          .from("users_details")
+          .insert([
+            {
+              branch_id: branchId,
+              first_name: firstName,
+              middle_name: middleName || null,
+              last_name: lastName,
+              suffix: suffix || null,
+              birthdate: birthDate,
+              baptismal_date: baptismalDate || null,
+              gender: gender,
+              street,
+              region,
+              barangay: barangay || null,
+              city,
+              province,
+              contact_number: contactNumber,
+              photo_path,
+              joined_date: today
+            },
+          ])
+          .select()
+          .single();
+
+        if (detailsError) {
+          setIsLoading(false);
+          Alert.alert("Error", detailsError.message || "Failed to save user details.");
+          return;
+        }
+
+        const user_details_id = detailsData?.user_details_id;
+        if (!user_details_id) {
+          setIsLoading(false);
+          Alert.alert("Error", "User details ID not returned.");
+          return;
+        }
+
+        // Prepare _member email (suffix after .com)
+        let memberEmail = email;
+        if (memberEmail.endsWith(".com")) {
+          memberEmail = memberEmail.replace(".com", ".com_member");
+        } else {
+          memberEmail = memberEmail + "_member";
+        }
+
+        // Get auth user id if available
+        let auth_user_id = null;
+        const { data: authUserData, error: authUserError } = await supabase.auth.getUser();
+        if (!authUserError && authUserData?.user?.id) {
+          auth_user_id = authUserData.user.id;
+        }
+
+        // Insert into users (do NOT include branch_id, not in schema)
+        const { error: usersError } = await supabase
+          .from("users")
+          .insert([
+            {
+              user_details_id,
+              email: memberEmail,
+              role: "member",
+              is_active: true,
+              auth_user_id,
+            },
+          ]);
+
+        if (usersError) {
+          setIsLoading(false);
+          Alert.alert("Error", usersError.message || "Failed to save user.");
+          return;
+        }
+
+        router.replace("/login");
+      } catch (err: any) {
+        Alert.alert("Unexpected Error", err?.message || "Something went wrong.");
+      } finally {
+        setIsLoading(false);
+      }
+    })();
   };
 
   const renderAuthStage = () => (
@@ -499,8 +667,63 @@ export default function Signup() {
     </Animated.View>
   );
 
+  const pickProfileImage = async () => {
+    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permissionResult.granted) {
+      Alert.alert('Permission required', 'Permission to access media library is required!');
+      return;
+    }
+        const pickerResult = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['images'],
+          allowsEditing: true,
+          aspect: [1, 1],
+          quality: 0.7,
+        });
+    if (!pickerResult.canceled && pickerResult.assets && pickerResult.assets.length > 0) {
+      setProfileImage(pickerResult.assets[0].uri);
+    }
+  };
+
   const renderCredentialsStage = () => (
-    <Animated.View style={[formAnimStyle, { width: "100%", maxWidth: 420 }]}>
+    <Animated.View style={[formAnimStyle, { width: "100%", maxWidth: 420 }]}> 
+      {/* Profile Picture Picker */}
+      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+        PROFILE PICTURE
+      </Text>
+      <TouchableOpacity
+        onPress={pickProfileImage}
+        style={{
+          alignItems: "center",
+          justifyContent: "center",
+          marginBottom: 18,
+        }}
+        disabled={profileImageUploading}
+      >
+        {profileImage ? (
+          <View style={{ alignItems: "center" }}>
+            <RNImage
+              source={{ uri: profileImage }}
+              style={{ width: 90, height: 90, borderRadius: 45, marginBottom: 8, borderWidth: 2, borderColor: "#ccc" }}
+              resizeMode="cover"
+            />
+            <Text style={{ color: "#888", fontSize: 12 }}>Change Photo</Text>
+          </View>
+        ) : (
+          <View style={{
+            width: 90,
+            height: 90,
+            borderRadius: 45,
+            backgroundColor: "#e0e0e0",
+            alignItems: "center",
+            justifyContent: "center",
+            marginBottom: 8,
+            borderWidth: 2,
+            borderColor: "#ccc"
+          }}>
+            <Ionicons name="camera-outline" size={32} color="#888" />
+          </View>
+        )}
+      </TouchableOpacity>
       <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
         FIRST NAME *
       </Text>
@@ -669,6 +892,51 @@ export default function Signup() {
           }}
         />
       )}
+
+      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+        BRANCH (STREET-BASED) *
+      </Text>
+      <DropDownPicker
+        open={branchOpen}
+        setOpen={setBranchOpen}
+        value={branchId}
+        setValue={(callback) => {
+          const next = callback(branchId) as number | null;
+          setBranchId(next);
+          const match = branches.find((b) => b.branch_id === next);
+          setBranchName(match?.name || "");
+        }}
+        items={branches.map((b) => ({
+          label: b.name || "Branch name not set",
+          value: b.branch_id,
+        }))}
+        placeholder={branches.length ? "Select branch you attend" : "Loading branches..."}
+        listMode="SCROLLVIEW"
+        style={{
+          backgroundColor: "rgba(255,255,255,0.95)",
+          borderRadius: 14,
+          borderWidth: 2,
+          borderColor: "rgba(11,101,22,0.2)",
+          paddingVertical: 2,
+        }}
+        textStyle={{ color: "#0a1612", fontSize: 15 }}
+        dropDownContainerStyle={{
+          backgroundColor: "rgba(255,255,255,0.95)",
+          borderWidth: 2,
+          borderColor: "rgba(11,101,22,0.2)",
+          borderRadius: 12,
+        }}
+        containerStyle={{ marginBottom: 24, zIndex: 5000 }}
+        onOpen={() => {
+          setSuffixOpen(false);
+          setGenderOpen(false);
+        }}
+      />
+      {branchName ? (
+        <Text style={{ color: "#4f5d4f", fontSize: 12, marginTop: -12, marginBottom: 22 }}>
+          Selected branch: {branchName}
+        </Text>
+      ) : null}
 
       <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
         GENDER *
@@ -1049,7 +1317,7 @@ export default function Signup() {
 
       <TouchableOpacity
         onPress={handleOTPSubmit}
-        disabled={otp.length !== 6}
+        disabled={otp.length !== 6 || isLoading}
         style={{
           backgroundColor: otp.length === 6 ? secondary : "#999",
           padding: 19,
@@ -1065,7 +1333,26 @@ export default function Signup() {
         }}
       >
         <Text style={{ color: "#fff", fontWeight: "800", fontSize: 16, letterSpacing: 1.5 }}>
-          SUBMIT OTP
+          {isLoading ? "VERIFYING..." : "SUBMIT OTP"}
+        </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        onPress={handleResendOTP}
+        disabled={isLoading}
+        style={{
+          backgroundColor: "rgba(255,255,255,0.08)",
+          padding: 14,
+          borderRadius: 14,
+          alignItems: "center",
+          width: "100%",
+          borderWidth: 1,
+          borderColor: "rgba(255,255,255,0.2)",
+          marginBottom: 8,
+        }}
+      >
+        <Text style={{ color: secondary, fontWeight: "700", fontSize: 14, letterSpacing: 1 }}>
+          RESEND CODE
         </Text>
       </TouchableOpacity>
 
@@ -1162,18 +1449,11 @@ export default function Signup() {
                     borderRadius: 8,
                   }}
                 >
-                  <Text allowFontScaling={false}>
-                    <Svg width={60} height={60} viewBox="0 0 60 60">
-                  <Image
-                    href={logo}
-                    x="0"
-                    y="0"
-                    width="60"
-                    height="60"
-                    preserveAspectRatio="xMidYMid slice"
+                  <RNImage
+                    source={{ uri: logo }}
+                    style={{ width: 60, height: 60, borderRadius: 8 }}
+                    resizeMode="cover"
                   />
-                    </Svg>
-                  </Text>
                 </View>
               </View>
             ) : null}

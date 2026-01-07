@@ -34,7 +34,7 @@ export default function Index() {
 
   // Dynamic colors from branding
   const primary = branding?.primary_color || "#064622";
-  const secondary = branding?.secondary_color || "#319658";
+  const secondary = branding?.primary_color || "#319658";
   const tertiary = branding?.tertiary_color || "#7ac29d";
   const logo = branding?.logo_icon
     ? `${branding.logo_icon.startsWith("http") ? branding.logo_icon : `${supabase.storage.from("logos").getPublicUrl(branding.logo_icon).data.publicUrl}`}`

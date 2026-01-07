@@ -32,6 +32,13 @@ export default function EventsScreen() {
   const [branding, setBranding] = useState<any>(null);
   const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [selectedType, setSelectedType] = useState<string | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [showDateFilter, setShowDateFilter] = useState(false);
+  const [showTypeFilter, setShowTypeFilter] = useState(false);
+  const [showCategoryFilter, setShowCategoryFilter] = useState(false);
 
   const notifications = [
     {
@@ -98,6 +105,9 @@ export default function EventsScreen() {
     : null;
 
   const branches = ["Bustos", "Talacsan", "Cavite", "San Roque", "Vizal Pampanga"];
+  const eventDates = ["This Week", "This Month", "This Year", "All Events"];
+  const eventTypes = ["Sunday Service", "Celebration", "Workshop", "Outreach", "Training"];
+  const eventCategories = ["Worship", "Family", "Kids", "Youth", "Community"];
 
   const events: EventItem[] = [
     {
@@ -178,11 +188,32 @@ export default function EventsScreen() {
   const interestEvent =
     events.find((event) => event.id !== recommendedNearestEvent.id) || recommendedNearestEvent;
 
-  const filteredEvents = selectedBranch
-    ? events.filter((event) =>
-        event.location.toLowerCase().includes(selectedBranch.toLowerCase())
-      )
-    : events;
+  const filteredEvents = events.filter((event) => {
+    // Branch filter
+    const branchMatch = !selectedBranch || event.location.toLowerCase().includes(selectedBranch.toLowerCase());
+    
+    // Search filter
+    const searchMatch = !searchQuery || 
+      event.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      event.subtitle.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    // Date filter
+    const dateMatch = !selectedDate || selectedDate === "All Events" || 
+      event.date.toLowerCase().includes(selectedDate.toLowerCase());
+    
+    // Type filter
+    const typeMatch = !selectedType || event.title.toLowerCase().includes(selectedType.toLowerCase());
+    
+    // Category filter
+    const categoryMatch = !selectedCategory || 
+      (selectedCategory === "Worship" && event.title.includes("Service")) ||
+      (selectedCategory === "Family" && event.title.includes("Family")) ||
+      (selectedCategory === "Kids" && event.title.includes("KIDS")) ||
+      (selectedCategory === "Youth" && event.title.includes("Youth")) ||
+      (selectedCategory === "Community" && event.title.includes("Day"));
+    
+    return branchMatch && searchMatch && dateMatch && typeMatch && categoryMatch;
+  });
 
   const renderEvent = ({ item }: { item: EventItem }) => (
     <View style={[styles.card, { borderColor: "#E3E8E3" }]}>
@@ -255,6 +286,8 @@ export default function EventsScreen() {
               placeholder="Search events"
               placeholderTextColor="#8FA28E"
               style={styles.searchInput}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
             />
           </View>
         </View>
@@ -353,12 +386,35 @@ export default function EventsScreen() {
 
         <View style={[styles.section, { marginTop: -4 }]}>
           <View style={styles.filterRow}>
-            {["Date", "Type", "Category"].map((label) => (
-              <TouchableOpacity key={label} style={[styles.filterChip, { borderColor: "#e0e5df" }]}>
-                <Text style={styles.filterText}>{label}</Text>
-                <Ionicons name="chevron-down" size={14} color="#556857" />
-              </TouchableOpacity>
-            ))}
+            <TouchableOpacity 
+              onPress={() => setShowDateFilter(true)}
+              style={[styles.filterChip, { borderColor: selectedDate ? secondary : "#e0e5df", backgroundColor: selectedDate ? `${secondary}15` : "#fff" }]}
+            >
+              <Text style={[styles.filterText, { color: selectedDate ? secondary : "#556857", fontWeight: selectedDate ? "700" : "500" }]}>
+                {selectedDate ? selectedDate : "Date"}
+              </Text>
+              <Ionicons name="chevron-down" size={14} color={selectedDate ? secondary : "#556857"} />
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              onPress={() => setShowTypeFilter(true)}
+              style={[styles.filterChip, { borderColor: selectedType ? secondary : "#e0e5df", backgroundColor: selectedType ? `${secondary}15` : "#fff" }]}
+            >
+              <Text style={[styles.filterText, { color: selectedType ? secondary : "#556857", fontWeight: selectedType ? "700" : "500" }]}>
+                {selectedType ? selectedType : "Type"}
+              </Text>
+              <Ionicons name="chevron-down" size={14} color={selectedType ? secondary : "#556857"} />
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              onPress={() => setShowCategoryFilter(true)}
+              style={[styles.filterChip, { borderColor: selectedCategory ? secondary : "#e0e5df", backgroundColor: selectedCategory ? `${secondary}15` : "#fff" }]}
+            >
+              <Text style={[styles.filterText, { color: selectedCategory ? secondary : "#556857", fontWeight: selectedCategory ? "700" : "500" }]}>
+                {selectedCategory ? selectedCategory : "Category"}
+              </Text>
+              <Ionicons name="chevron-down" size={14} color={selectedCategory ? secondary : "#556857"} />
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -377,6 +433,117 @@ export default function EventsScreen() {
 
         <View style={{ height: 12 }} />
       </ScrollView>
+
+      {/* Date Filter Modal */}
+      <Modal
+        visible={showDateFilter}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowDateFilter(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.filterModalContent}>
+            <View style={styles.filterModalHeader}>
+              <Text style={styles.filterModalTitle}>Filter by Date</Text>
+              <TouchableOpacity onPress={() => setShowDateFilter(false)}>
+                <Ionicons name="close" size={28} color="#000" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {eventDates.map((date) => {
+                const isActive = selectedDate === date;
+                return (
+                  <TouchableOpacity
+                    key={date}
+                    onPress={() => {
+                      setSelectedDate(isActive ? null : date);
+                      setShowDateFilter(false);
+                    }}
+                    style={[styles.filterOption, { backgroundColor: isActive ? `${secondary}15` : "#fff" }]}
+                  >
+                    <Text style={[styles.filterOptionText, { color: isActive ? secondary : "#333", fontWeight: isActive ? "700" : "500" }]}>{date}</Text>
+                    {isActive && <Ionicons name="checkmark" size={20} color={secondary} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Type Filter Modal */}
+      <Modal
+        visible={showTypeFilter}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowTypeFilter(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.filterModalContent}>
+            <View style={styles.filterModalHeader}>
+              <Text style={styles.filterModalTitle}>Filter by Type</Text>
+              <TouchableOpacity onPress={() => setShowTypeFilter(false)}>
+                <Ionicons name="close" size={28} color="#000" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {eventTypes.map((type) => {
+                const isActive = selectedType === type;
+                return (
+                  <TouchableOpacity
+                    key={type}
+                    onPress={() => {
+                      setSelectedType(isActive ? null : type);
+                      setShowTypeFilter(false);
+                    }}
+                    style={[styles.filterOption, { backgroundColor: isActive ? `${secondary}15` : "#fff" }]}
+                  >
+                    <Text style={[styles.filterOptionText, { color: isActive ? secondary : "#333", fontWeight: isActive ? "700" : "500" }]}>{type}</Text>
+                    {isActive && <Ionicons name="checkmark" size={20} color={secondary} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Category Filter Modal */}
+      <Modal
+        visible={showCategoryFilter}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowCategoryFilter(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.filterModalContent}>
+            <View style={styles.filterModalHeader}>
+              <Text style={styles.filterModalTitle}>Filter by Category</Text>
+              <TouchableOpacity onPress={() => setShowCategoryFilter(false)}>
+                <Ionicons name="close" size={28} color="#000" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {eventCategories.map((category) => {
+                const isActive = selectedCategory === category;
+                return (
+                  <TouchableOpacity
+                    key={category}
+                    onPress={() => {
+                      setSelectedCategory(isActive ? null : category);
+                      setShowCategoryFilter(false);
+                    }}
+                    style={[styles.filterOption, { backgroundColor: isActive ? `${secondary}15` : "#fff" }]}
+                  >
+                    <Text style={[styles.filterOptionText, { color: isActive ? secondary : "#333", fontWeight: isActive ? "700" : "500" }]}>{category}</Text>
+                    {isActive && <Ionicons name="checkmark" size={20} color={secondary} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={showNotifications}
@@ -689,5 +856,42 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#888",
     marginTop: 6,
+  },
+  filterModalContent: {
+    width: "100%",
+    maxWidth: 420,
+    maxHeight: "70%",
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    paddingVertical: 16,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+  },
+  filterModalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+  },
+  filterModalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#000",
+  },
+  filterOption: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f5f5f5",
+  },
+  filterOptionText: {
+    fontSize: 15,
+    color: "#333",
   },
 });

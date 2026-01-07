@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as Notifications from "expo-notifications";
 import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
@@ -27,6 +28,16 @@ export default function MinistryScreen() {
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
   const [availability, setAvailability] = useState<string>("");
   const [note, setNote] = useState<string>("");
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [events, setEvents] = useState<any[]>([]);
+  const [showTaskDoneConfirm, setShowTaskDoneConfirm] = useState(false);
+  const [taskDoneMessage, setTaskDoneMessage] = useState<string>("");
+  const [showNotGoingModal, setShowNotGoingModal] = useState(false);
+  const [notGoingReason, setNotGoingReason] = useState("");
+  const [wantSubstitute, setWantSubstitute] = useState<boolean>(false);
+  const [selectedEvent, setSelectedEvent] = useState<any>(null);
+  const [showSubstituteConfirm, setShowSubstituteConfirm] = useState(false);
+  const [showSubstituteAcceptedConfirm, setShowSubstituteAcceptedConfirm] = useState(false);
 
   const notifications = [
     {
@@ -84,6 +95,25 @@ export default function MinistryScreen() {
     })();
   }, []);
 
+  // Configure notifications and request permission
+  useEffect(() => {
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: false,
+        shouldSetBadge: false,
+        shouldShowBanner: true,
+        shouldShowList: true,
+      }),
+    });
+    (async () => {
+      const { status } = await Notifications.getPermissionsAsync();
+      if (status !== "granted") {
+        await Notifications.requestPermissionsAsync();
+      }
+    })();
+  }, []);
+
   const primary = branding?.primary_color || "#064622";
   const secondary = branding?.secondary_color || "#319658";
   const logo = branding?.logo_icon
@@ -93,11 +123,11 @@ export default function MinistryScreen() {
     : null;
 
   const ministries = [
-    { id: 1, name: "Iron Men", description: "Men's fellowship and leadership group", members: 28, image: "https://lh3.googleusercontent.com/d/1fR_33lLkVUVmS8S_AJv8lINmhDHflG-t=w400" },
-    { id: 2, name: "Women at Work", description: "Women's ministry for fellowship and service", members: 32, image: "https://lh3.googleusercontent.com/d/1_qjxiWdsJ0vXQddnUInlg3xqU839ODdB=w400" },
-    { id: 3, name: "Seniors", description: "Senior citizens ministry", members: 19, image: "https://lh3.googleusercontent.com/d/1fR_33lLkVUVmS8S_AJv8lINmhDHflG-t=w400" },
-    { id: 4, name: "Youth Movers", description: "Youth ministry for teens and young adults", members: 45, image: "https://lh3.googleusercontent.com/d/1GCJJDXIHIlTEe3UuOYtl1KPDV_PIOHae=w400" },
-    { id: 5, name: "Couples", description: "Married couples ministry", members: 22, image: "https://lh3.googleusercontent.com/d/1uEoFDisajT68_vbz3_-L_VO4WXKJ4X6E=w400" },
+    { id: 1, name: "Iron Men", description: "Men's fellowship and leadership group", members: 28, image: "https://scontent.fmnl9-4.fna.fbcdn.net/v/t1.15752-9/597231628_824312293933713_6482925382131957249_n.png?_nc_cat=105&ccb=1-7&_nc_sid=9f807c&_nc_eui2=AeEUjCGRG06tKw0g84SJ2kXZ0tqflpytuyrS2p-WnK27Ko1CVRVo47OT2GXVijm5YsH-3V0-MBVztCM1LpBddxPU&_nc_ohc=RpRtAGB9dIUQ7kNvwEL5IOC&_nc_oc=AdnHYRkkU7crSb0qR2UwzugNc_iGmtpUHaEHFfvfHltEPPar9k8wQZd7cM1qvYReJYk&_nc_zt=23&_nc_ht=scontent.fmnl9-4.fna&oh=03_Q7cD4AGJrH4AFmIbj0BUNmF6EGImRNhWqu3kbxvun4VaZRUXaQ&oe=6968EC98" },
+    { id: 2, name: "Women at Work", description: "Women's ministry for fellowship and service", members: 32, image: "https://scontent.fmnl9-7.fna.fbcdn.net/v/t1.15752-9/597949346_1155900569645231_1597258750514702910_n.png?_nc_cat=104&ccb=1-7&_nc_sid=9f807c&_nc_eui2=AeHX9m8sHU_Z6pi2bAMfNyBNOkvVCi96HiI6S9UKL3oeIn3TtEFi5oEwOMDxkMjmw36vnGGNe65CKPrWBv8192_-&_nc_ohc=2XeLMskwSu8Q7kNvwEmRXvW&_nc_oc=AdmZxSqkUhrybKN6JuezWqf2bLxLrMygt3TWAO3HhZBw68iAdtYayjazG9F2KHwcBrs&_nc_zt=23&_nc_ht=scontent.fmnl9-7.fna&oh=03_Q7cD4AEtUGhKNniZR3oepoMn3vdros2CHeIfmcLHj_UHFZNOkA&oe=6968DB01" },
+    { id: 3, name: "Seniors", description: "Senior citizens ministry", members: 19, image: "https://images.squarespace-cdn.com/content/v1/508da03be4b0d28844ddf21c/b6b91500-d4a5-47de-a8c7-451b4a7d9f70/seniors+3.jpg?format=2500w" },
+    { id: 4, name: "Youth Movers", description: "Youth ministry for teens and young adults", members: 45, image: "https://scontent.fmnl9-6.fna.fbcdn.net/v/t1.15752-9/597860634_862349562832387_3194540810096496538_n.png?_nc_cat=103&ccb=1-7&_nc_sid=9f807c&_nc_eui2=AeFwJkMvFXaTi24rFf7GtwmTrWU-h6lICEytZT6HqUgITMdbH7lkjdjz-eIXEhsSHEi4e_Dh4-ov7mRttFh1t_n1&_nc_ohc=mS5TdMwoX90Q7kNvwEVq_4j&_nc_oc=AdnEURhn-9y72CcjX_nSbdi2o98XWQ0Lt3kT7kGTXpIkPNpznGuzx2tVdyG_p0YYIAc&_nc_zt=23&_nc_ht=scontent.fmnl9-6.fna&oh=03_Q7cD4AGhqtK0SNfhPMFgo5p7MgSvrI0fFzo-qUHZteKWJVjSYg&oe=6968E7AB" },
+    { id: 5, name: "Couples", description: "Married couples ministry", members: 22, image: "https://tse4.mm.bing.net/th/id/OIP.APcNJG8upwlvaf9Y7g2QxAHaEo?pid=Api&P=0&h=180" },
     { id: 6, name: "Kids", description: "Children's Sunday school ministry", members: 68, image: "https://lh3.googleusercontent.com/d/1mMKqJvX3HZA3SFTfKIDci3IsXZWFnJ1P=w400" },
     { id: 7, name: "S.O.S", description: "Support and service ministry", members: 15, image: "https://lh3.googleusercontent.com/d/1fR_33lLkVUVmS8S_AJv8lINmhDHflG-t=w400" },
     { id: 8, name: "Evangelism", description: "Evangelism and outreach ministry", members: 24, image: "https://lh3.googleusercontent.com/d/1NinbnWn7zzbROn74TD-GvO6JrcySJj17=w400" },
@@ -203,6 +233,69 @@ export default function MinistryScreen() {
     setShowMyMinistryModal(true);
   };
 
+  useEffect(() => {
+    // initialize tasks and events when component mounts
+    setTasks(assignedTasks);
+    setEvents(ministryEvents);
+  }, []);
+
+  const handleMarkDone = (taskId: number) => {
+    const task = tasks.find((t) => t.id === taskId);
+    setTasks((prev) => prev.filter((t) => t.id !== taskId));
+    setTaskDoneMessage(
+      `“${task?.title || "Task"}” marked done. Your members will be notified that you’ve completed it.`
+    );
+    setShowTaskDoneConfirm(true);
+  };
+
+  const handleAcceptTask = (taskId: number) => {
+    setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: "Assigned" } : t)));
+  };
+
+  const handleDeclineTask = (taskId: number) => {
+    setTasks((prev) => prev.filter((t) => t.id !== taskId));
+  };
+
+  const handleRsvpGoing = (eventId: number) => {
+    setEvents((prev) => prev.filter((e) => e.id !== eventId));
+  };
+
+  const handleRsvpNotGoing = (eventItem: any) => {
+    setSelectedEvent(eventItem);
+    setNotGoingReason("");
+    setWantSubstitute(false);
+    setShowNotGoingModal(true);
+    // Ensure parent modal doesn't obscure the Not Going modal
+    setShowMyMinistryModal(false);
+  };
+
+  const submitNotGoing = () => {
+    setShowNotGoingModal(false);
+    if (wantSubstitute) {
+      // stub: create a confirmation that a push notification has been sent
+      setShowSubstituteConfirm(true);
+    }
+    // Optionally, we could keep the activities list intact when Not Going is chosen.
+    // If you want to remove the event on Not Going, uncomment below:
+    // setEvents((prev) => prev.filter((e) => e.id !== selectedEvent?.id));
+  };
+
+  const acknowledgeSubstituteRequest = () => {
+    // Close the initial substitute request confirmation
+    setShowSubstituteConfirm(false);
+    // Send a local push notification to the user's device
+    Notifications.scheduleNotificationAsync({
+      content: {
+        title: "Substitute Confirmed",
+        body: `A member has agreed to substitute for ${selectedEvent?.title || "your activity"}.`,
+        data: { type: "substitute", eventId: selectedEvent?.id },
+      },
+      trigger: null, // deliver immediately
+    });
+    // Optionally show a confirmation modal to guide the user to notifications UI
+    setShowSubstituteAcceptedConfirm(true);
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: "#fff" }}>
       <View style={[styles.header, { backgroundColor: primary }]}>
@@ -260,54 +353,18 @@ export default function MinistryScreen() {
           </View>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Assigned Tasks & AI Picks</Text>
-          {assignedTasks.map((task) => (
-            <View key={task.id} style={styles.taskCard}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.taskTitle}>{task.title}</Text>
-                <Text style={styles.taskMeta}>{task.ministry} • {task.when}</Text>
-                <Text style={styles.taskStatus}>{task.status}</Text>
-              </View>
-              <TouchableOpacity style={[styles.taskAction, { backgroundColor: primary }]} activeOpacity={0.85}>
-                <Text style={styles.taskActionText}>{task.status === "Pending Acceptance" ? "Accept" : "Mark Done"}</Text>
-              </TouchableOpacity>
-            </View>
-          ))}
       
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Ministry Events & Participation</Text>
-          {ministryEvents.map((event) => (
-            <View key={event.id} style={styles.eventCard}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.eventTitle}>{event.title}</Text>
-                <Text style={styles.eventMeta}>{event.time} • {event.location}</Text>
-              </View>
-              <View style={styles.rsvpPillRow}>
-                {(["Going", "Not Going"] as const).map((option) => {
-                  const isActive = event.rsvp === option;
-                  return (
-                    <TouchableOpacity key={option} style={[styles.rsvpPill, { backgroundColor: isActive ? `${primary}15` : "#f3f5f3", borderColor: isActive ? primary : "#e5e8e5" }]}>
-                      <Text style={[styles.rsvpPillText, { color: isActive ? primary : "#4d5a4d" }]}>{option}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-          ))}
-        </View>
-
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>My Ministry</Text>
           {ministries.find(m => m.name === "Usher") && (
-            <View style={[styles.ministryCard, { borderLeftColor: secondary }]}>
+            <View style={[styles.ministryCard, styles.ministryCardWithTag]}>
+              <View style={[styles.cardBlobTopRight, { backgroundColor: `${secondary}15` }]} />
+              <View style={[styles.cardBlobBottomLeft, { backgroundColor: `${primary}0D` }]} />
               <View style={styles.ministryContent}>
                 <View style={styles.ministryHeader}>
                   <Image
-                    source={{ uri: "https://lh3.googleusercontent.com/d/1ApOlySWNoqg37Id9oVxeSdDMuD9FyTYG=w400" }}
-                    style={styles.ministryImage}
+                    source={{ uri: "https://scontent.fmnl9-6.fna.fbcdn.net/v/t1.15752-9/597563695_1738614776832649_4365066983560737174_n.jpg?_nc_cat=107&ccb=1-7&_nc_sid=9f807c&_nc_eui2=AeFvfMKwYAUlvezajqOMT3gSnq8mm0Hdn0yeryabQd2fTGGQutz0xs5kArk0SUVPEAAFhya1okjLHJw2RN0rPPon&_nc_ohc=A9hFqvKExhgQ7kNvwFOVIVq&_nc_oc=AdnVT6pxaE3g9Xg-to38Q7mX8MeUEMhyj8Kf89y8c5AljcU0Z2G4hdm6JK1NN1JlDTg&_nc_zt=23&_nc_ht=scontent.fmnl9-6.fna&oh=03_Q7cD4AGr6Ychxr4g9QUFZGbUYb7tZ2-cOyJDhfqAE0FliUZBAA&oe=6968E9C2" }}
+                    style={[styles.ministryImage, { borderColor: secondary }]}
                     resizeMode="cover"
                   />
                   <View style={{ flex: 1, marginLeft: 12 }}>
@@ -319,12 +376,9 @@ export default function MinistryScreen() {
                 </View>
                 <View style={styles.ministryFooter}>
                   <Text style={styles.ministryMembers}>31 members</Text>
-                  <TouchableOpacity
-                    style={[styles.joinBtn, { backgroundColor: secondary }]}
-                    onPress={handleViewMyMinistry}
-                  >
-               
-                    <Text style={[styles.joinBtnText, { marginLeft: 6 }]}>View</Text>
+                  <TouchableOpacity style={styles.viewBtn} onPress={handleViewMyMinistry}>
+                    <Text style={[styles.viewBtnText, { color: secondary }]}>View</Text>
+                    <Ionicons name="chevron-forward" size={16} color={secondary} />
                   </TouchableOpacity>
                 </View>
               </View>
@@ -339,12 +393,14 @@ export default function MinistryScreen() {
             keyExtractor={(item) => item.id.toString()}
             scrollEnabled={false}
             renderItem={({ item }) => (
-              <View style={[styles.ministryCard, { borderLeftColor: secondary }]}>
+              <View style={styles.ministryCard}>
+                <View style={[styles.cardBlobTopRight, { backgroundColor: `${secondary}18` }]} />
+                <View style={[styles.cardBlobBottomLeft, { backgroundColor: `${primary}10` }]} />
                 <View style={styles.ministryContent}>
                   <View style={styles.ministryHeader}>
                     <Image
                       source={{ uri: item.image }}
-                      style={styles.ministryImage}
+                      style={[styles.ministryImage, { borderColor: secondary }]}
                       resizeMode="cover"
                     />
                     <View style={{ flex: 1, marginLeft: 12 }}>
@@ -446,6 +502,144 @@ export default function MinistryScreen() {
         </View>
       </Modal>
 
+      {/* Task Done Confirmation */}
+      <Modal
+        visible={showTaskDoneConfirm}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowTaskDoneConfirm(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.confirmModalContent}>
+            <View style={[styles.confirmIconBox, { backgroundColor: `${secondary}20` }]}> 
+              <Ionicons name="checkmark-done-circle" size={56} color={secondary} />
+            </View>
+            <Text style={styles.confirmTitle}>Task Completed</Text>
+            <Text style={styles.confirmText}>{taskDoneMessage}</Text>
+            <TouchableOpacity
+              style={[styles.primaryCta, { backgroundColor: primary, marginTop: 12 }]}
+              activeOpacity={0.9}
+              onPress={() => setShowTaskDoneConfirm(false)}
+            >
+              <Text style={styles.primaryCtaText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Not Going Modal */}
+      <Modal
+        visible={showNotGoingModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowNotGoingModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.requestModalContent}>
+            <View style={styles.requestHeader}>
+              <Text style={styles.requestTitle}>Not Going</Text>
+              <TouchableOpacity onPress={() => setShowNotGoingModal(false)}>
+                <Ionicons name="close" size={24} color="#000" />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.fieldLabel}>Event</Text>
+            <View style={[styles.infoBox, { marginBottom: 8 }]}>
+              <Text style={styles.infoText}>{selectedEvent?.title}</Text>
+              <Text style={[styles.infoText, { marginTop: 4 }]}>{selectedEvent?.time} • {selectedEvent?.location}</Text>
+            </View>
+            <Text style={styles.fieldLabel}>Why are you not going?</Text>
+            <TextInput
+              placeholder="Share your reason..."
+              placeholderTextColor="#8a938a"
+              value={notGoingReason}
+              onChangeText={setNotGoingReason}
+              style={[styles.input, { height: 80, marginBottom: 12 }]}
+              multiline
+            />
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+              <Text style={[styles.fieldLabel, { marginTop: 0 }]}>Request a substitute?</Text>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <TouchableOpacity
+                  style={[styles.rsvpPill, { borderColor: wantSubstitute ? '#e5e8e5' : primary, backgroundColor: wantSubstitute ? '#f3f5f3' : `${primary}15` }]}
+                  onPress={() => setWantSubstitute(false)}
+                >
+                  <Text style={[styles.rsvpPillText, { color: wantSubstitute ? '#4d5a4d' : primary }]}>No</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.rsvpPill, { borderColor: wantSubstitute ? primary : '#e5e8e5', backgroundColor: wantSubstitute ? `${primary}15` : '#f3f5f3' }]}
+                  onPress={() => setWantSubstitute(true)}
+                >
+                  <Text style={[styles.rsvpPillText, { color: wantSubstitute ? primary : '#4d5a4d' }]}>Yes</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+            <TouchableOpacity
+              style={[styles.primaryCta, { backgroundColor: primary, marginTop: 16 }]}
+              activeOpacity={0.9}
+              onPress={submitNotGoing}
+            >
+              <Text style={styles.primaryCtaText}>Submit</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Substitute Confirmation */}
+      <Modal
+        visible={showSubstituteConfirm}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSubstituteConfirm(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.confirmModalContent}>
+            <View style={[styles.confirmIconBox, { backgroundColor: `${secondary}20` }]}> 
+              <Ionicons name="notifications" size={56} color={secondary} />
+            </View>
+            <Text style={styles.confirmTitle}>Substitute Requested</Text>
+            <Text style={styles.confirmText}>
+              A push notification has been sent to your ministry team about the needed substitute.
+            </Text>
+            <TouchableOpacity
+              style={[styles.primaryCta, { backgroundColor: primary, marginTop: 12 }]}
+              activeOpacity={0.9}
+              onPress={acknowledgeSubstituteRequest}
+            >
+              <Text style={styles.primaryCtaText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Substitute Accepted (User notification) */}
+      <Modal
+        visible={showSubstituteAcceptedConfirm}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSubstituteAcceptedConfirm(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.confirmModalContent}>
+            <View style={[styles.confirmIconBox, { backgroundColor: `${primary}20` }]}> 
+              <Ionicons name="checkmark-circle" size={56} color={primary} />
+            </View>
+            <Text style={styles.confirmTitle}>Substitute Confirmed</Text>
+            <Text style={styles.confirmText}>
+              A member has agreed to be your substitute. We’ve added a notification to your inbox.
+            </Text>
+            <TouchableOpacity
+              style={[styles.primaryCta, { backgroundColor: primary, marginTop: 12 }]}
+              activeOpacity={0.9}
+              onPress={() => {
+                setShowSubstituteAcceptedConfirm(false);
+                setShowNotifications(true);
+              }}
+            >
+              <Text style={styles.primaryCtaText}>View Notification</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
       <Modal
         visible={showJoinModal}
         transparent
@@ -584,7 +778,7 @@ export default function MinistryScreen() {
 
               {/* Ministry Activities/Events */}
               <Text style={[styles.subSectionTitle, { marginTop: 16 }]}>Your Ministry Activities</Text>
-              {ministryEvents.map((event) => (
+              {events.map((event) => (
                 <View key={event.id} style={styles.activityCard}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.activityTitle}>{event.title}</Text>
@@ -594,7 +788,16 @@ export default function MinistryScreen() {
                     {(["Going", "Not Going"] as const).map((option) => {
                       const isActive = event.rsvp === option;
                       return (
-                        <TouchableOpacity key={option} style={[styles.rsvpPill, { backgroundColor: isActive ? `${primary}15` : "#f3f5f3", borderColor: isActive ? primary : "#e5e8e5" }]}>
+                        <TouchableOpacity
+                          key={option}
+                          style={[
+                            styles.rsvpPill,
+                            { backgroundColor: isActive ? `${primary}15` : "#f3f5f3", borderColor: isActive ? primary : "#e5e8e5" },
+                          ]}
+                          onPress={() =>
+                            option === "Going" ? handleRsvpGoing(event.id) : handleRsvpNotGoing(event)
+                          }
+                        >
                           <Text style={[styles.rsvpPillText, { color: isActive ? primary : "#4d5a4d" }]}>{option}</Text>
                         </TouchableOpacity>
                       );
@@ -605,16 +808,39 @@ export default function MinistryScreen() {
 
               {/* Assigned Tasks */}
               <Text style={[styles.subSectionTitle, { marginTop: 16 }]}>Your Assigned Tasks</Text>
-              {assignedTasks.map((task) => (
+              {tasks.map((task) => (
                 <View key={task.id} style={[styles.taskCard, { marginBottom: 12 }]}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.taskTitle}>{task.title}</Text>
                     <Text style={styles.taskMeta}>{task.when}</Text>
                     <Text style={styles.taskStatus}>{task.status}</Text>
                   </View>
-                  <TouchableOpacity style={[styles.taskAction, { backgroundColor: primary }]} activeOpacity={0.85}>
-                    <Text style={styles.taskActionText}>{task.status === "Pending Acceptance" ? "Accept" : "Mark Done"}</Text>
-                  </TouchableOpacity>
+                  {task.status === "Pending Acceptance" ? (
+                    <View style={{ flexDirection: "row", gap: 8 }}>
+                      <TouchableOpacity
+                        style={[styles.taskAction, { backgroundColor: primary }]}
+                        activeOpacity={0.85}
+                        onPress={() => handleAcceptTask(task.id)}
+                      >
+                        <Text style={styles.taskActionText}>Accept</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.taskAction, { backgroundColor: "#c0392b" }]}
+                        activeOpacity={0.85}
+                        onPress={() => handleDeclineTask(task.id)}
+                      >
+                        <Text style={styles.taskActionText}>Decline</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      style={[styles.taskAction, { backgroundColor: primary }]}
+                      activeOpacity={0.85}
+                      onPress={() => handleMarkDone(task.id)}
+                    >
+                      <Text style={styles.taskActionText}>Mark Done</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               ))}
 
@@ -921,39 +1147,43 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   ministryCard: {
-    borderLeftWidth: 4,
-    borderRadius: 8,
+    borderRadius: 16,
     padding: 16,
-    marginBottom: 12,
-    backgroundColor: "#f9f9f9",
+    marginBottom: 14,
+    backgroundColor: "#fff",
+    overflow: "hidden",
     elevation: 2,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+  },
+  ministryCardWithTag: {
+    paddingTop: 40,
   },
   ministryContent: {
-    gap: 12,
+    gap: 10,
   },
   ministryHeader: {
     flexDirection: "row",
     alignItems: "flex-start",
   },
   ministryImage: {
-    width: 48,
-    height: 48,
-    borderRadius: 8,
-    backgroundColor: "#f0f0f0",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#f1f4f1",
+    borderWidth: 1,
   },
   ministryName: {
     fontSize: 16,
     fontWeight: "700",
-    color: "#000",
+    color: "#1f2a1f",
     marginBottom: 4,
   },
   ministryDescription: {
     fontSize: 13,
-    color: "#666",
+    color: "#627062",
   },
   ministryFooter: {
     flexDirection: "row",
@@ -962,7 +1192,50 @@ const styles = StyleSheet.create({
   },
   ministryMembers: {
     fontSize: 12,
-    color: "#999",
+    color: "#6b776b",
+  },
+  cardBlobTopRight: {
+    position: "absolute",
+    top: -36,
+    right: -28,
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+  },
+  cardBlobBottomLeft: {
+    position: "absolute",
+    bottom: -20,
+    left: -20,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+  },
+  tagPill: {
+    position: "absolute",
+    top: 12,
+    left: 16,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 16,
+    borderWidth: 1,
+    zIndex: 1,
+  },
+  tagPillText: {
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  viewBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: "transparent",
+  },
+  viewBtnText: {
+    fontSize: 13,
+    fontWeight: "700",
   },
   joinBtn: {
     paddingVertical: 8,

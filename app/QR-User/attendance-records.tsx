@@ -3,67 +3,67 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { router } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import {
-    Image,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Image,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { supabase } from "../../src/lib/supabaseClient";
 import QRNavbar from "./qr-navbar";
 
 const branches = ["San Roque", "Bustos", "Talacsan", "Vizal Pampanga", "Cavite"];
 const services = ["All", "Sunday Service", "Bible Study", "Prayer Meeting", "Youth Service", "Midweek Service"];
+const timePeriods = ["Daily", "Weekly", "Monthly"];
 
-const attendanceRecords = [
-  {
-    id: 1,
-    name: "Ethan Carter",
-    time: "10:30 AM",
-    branch: "North",
-    service: "Sunday Service",
-    avatar: "https://i.pravatar.cc/80?img=12",
-  },
-  {
-    id: 2,
-    name: "Olivia Bennett",
-    time: "10:35 AM",
-    branch: "West",
-    service: "Bible Study",
-    avatar: "https://i.pravatar.cc/80?img=32",
-  },
-  {
-    id: 3,
-    name: "Noah Thompson",
-    time: "10:40 AM",
-    branch: "South",
-    service: "Sunday Service",
-    avatar: "https://i.pravatar.cc/80?img=45",
-  },
-  {
-    id: 4,
-    name: "Ava Collins",
-    time: "11:05 AM",
-    branch: "East",
-    service: "Prayer Meeting",
-    avatar: "https://i.pravatar.cc/80?img=24",
-  },
-  {
-    id: 5,
-    name: "Liam Foster",
-    time: "11:15 AM",
-    branch: "Main",
-    service: "Youth Service",
-    avatar: "https://i.pravatar.cc/80?img=18",
-  },
+// Dummy data for Daily view (Today)
+const dailyAttendance = [
+  { id: 1, name: "Ethan Carter", time: "10:30 AM", date: "Today", branch: "San Roque", service: "Sunday Service", avatar: "https://i.pravatar.cc/80?img=12" },
+  { id: 2, name: "Olivia Bennett", time: "10:35 AM", date: "Today", branch: "Bustos", service: "Sunday Service", avatar: "https://i.pravatar.cc/80?img=32" },
+  { id: 3, name: "Noah Thompson", time: "10:40 AM", date: "Today", branch: "San Roque", service: "Sunday Service", avatar: "https://i.pravatar.cc/80?img=45" },
+  { id: 4, name: "Ava Collins", time: "11:05 AM", date: "Today", branch: "Talacsan", service: "Sunday Service", avatar: "https://i.pravatar.cc/80?img=24" },
+  { id: 5, name: "Liam Foster", time: "11:15 AM", date: "Today", branch: "San Roque", service: "Sunday Service", avatar: "https://i.pravatar.cc/80?img=18" },
+  { id: 6, name: "Sophia Martinez", time: "2:20 PM", date: "Today", branch: "Bustos", service: "Bible Study", avatar: "https://i.pravatar.cc/80?img=28" },
+  { id: 7, name: "James Wilson", time: "3:45 PM", date: "Today", branch: "Vizal Pampanga", service: "Prayer Meeting", avatar: "https://i.pravatar.cc/80?img=51" },
+];
+
+// Dummy data for Weekly view (Last 7 days)
+const weeklyAttendance = [
+  { id: 11, name: "Emma Davis", time: "9:15 AM", date: "Mon, Dec 16", branch: "San Roque", service: "Sunday Service", avatar: "https://i.pravatar.cc/80?img=5" },
+  { id: 12, name: "Michael Brown", time: "9:30 AM", date: "Mon, Dec 16", branch: "Cavite", service: "Sunday Service", avatar: "https://i.pravatar.cc/80?img=13" },
+  { id: 13, name: "Isabella Garcia", time: "10:00 AM", date: "Sun, Dec 15", branch: "Bustos", service: "Sunday Service", avatar: "https://i.pravatar.cc/80?img=44" },
+  { id: 14, name: "William Johnson", time: "10:20 AM", date: "Sun, Dec 15", branch: "Talacsan", service: "Sunday Service", avatar: "https://i.pravatar.cc/80?img=33" },
+  { id: 15, name: "Charlotte Lee", time: "6:00 PM", date: "Wed, Dec 11", branch: "San Roque", service: "Midweek Service", avatar: "https://i.pravatar.cc/80?img=22" },
+  { id: 16, name: "Benjamin Taylor", time: "6:15 PM", date: "Wed, Dec 11", branch: "Bustos", service: "Midweek Service", avatar: "https://i.pravatar.cc/80?img=14" },
+  { id: 17, name: "Amelia Anderson", time: "7:00 PM", date: "Tue, Dec 10", branch: "Vizal Pampanga", service: "Bible Study", avatar: "https://i.pravatar.cc/80?img=26" },
+  { id: 18, name: "Lucas White", time: "7:30 PM", date: "Tue, Dec 10", branch: "Cavite", service: "Prayer Meeting", avatar: "https://i.pravatar.cc/80?img=60" },
+  { id: 19, name: "Mia Harris", time: "5:00 PM", date: "Sat, Dec 14", branch: "San Roque", service: "Youth Service", avatar: "https://i.pravatar.cc/80?img=47" },
+  { id: 20, name: "Alexander Clark", time: "5:30 PM", date: "Sat, Dec 14", branch: "Talacsan", service: "Youth Service", avatar: "https://i.pravatar.cc/80?img=52" },
+];
+
+// Dummy data for Monthly view (December)
+const monthlyAttendance = [
+  { id: 31, name: "Harper Lewis", time: "9:00 AM", date: "Dec 1", branch: "San Roque", service: "Sunday Service", avatar: "https://i.pravatar.cc/80?img=9" },
+  { id: 32, name: "Evelyn Walker", time: "9:30 AM", date: "Dec 1", branch: "Bustos", service: "Sunday Service", avatar: "https://i.pravatar.cc/80?img=20" },
+  { id: 33, name: "Sebastian Hall", time: "10:00 AM", date: "Dec 8", branch: "Vizal Pampanga", service: "Sunday Service", avatar: "https://i.pravatar.cc/80?img=15" },
+  { id: 34, name: "Abigail Young", time: "10:30 AM", date: "Dec 8", branch: "Cavite", service: "Sunday Service", avatar: "https://i.pravatar.cc/80?img=48" },
+  { id: 35, name: "Jackson Allen", time: "6:00 PM", date: "Dec 4", branch: "San Roque", service: "Midweek Service", avatar: "https://i.pravatar.cc/80?img=11" },
+  { id: 36, name: "Ella King", time: "6:30 PM", date: "Dec 4", branch: "Talacsan", service: "Midweek Service", avatar: "https://i.pravatar.cc/80?img=25" },
+  { id: 37, name: "Henry Wright", time: "7:00 PM", date: "Dec 3", branch: "Bustos", service: "Bible Study", avatar: "https://i.pravatar.cc/80?img=53" },
+  { id: 38, name: "Scarlett Lopez", time: "7:15 PM", date: "Dec 3", branch: "San Roque", service: "Prayer Meeting", avatar: "https://i.pravatar.cc/80?img=41" },
+  { id: 39, name: "Daniel Hill", time: "4:30 PM", date: "Dec 7", branch: "Vizal Pampanga", service: "Youth Service", avatar: "https://i.pravatar.cc/80?img=31" },
+  { id: 40, name: "Grace Scott", time: "5:00 PM", date: "Dec 7", branch: "Cavite", service: "Youth Service", avatar: "https://i.pravatar.cc/80?img=19" },
+  { id: 41, name: "Matthew Green", time: "10:15 AM", date: "Dec 15", branch: "Bustos", service: "Sunday Service", avatar: "https://i.pravatar.cc/80?img=54" },
+  { id: 42, name: "Chloe Adams", time: "10:45 AM", date: "Dec 15", branch: "San Roque", service: "Sunday Service", avatar: "https://i.pravatar.cc/80?img=27" },
 ];
 
 export default function AttendanceRecords() {
   const [branding, setBranding] = useState<any>(null);
   const [selectedBranch, setSelectedBranch] = useState("All");
   const [selectedService, setSelectedService] = useState("All");
+  const [selectedPeriod, setSelectedPeriod] = useState("Daily");
   const [showScanner, setShowScanner] = useState(false);
   const [scanned, setScanned] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
@@ -80,13 +80,60 @@ export default function AttendanceRecords() {
     })();
   }, []);
 
+  // Get current attendance records based on period
+  const currentRecords = useMemo(() => {
+    switch (selectedPeriod) {
+      case "Daily":
+        return dailyAttendance;
+      case "Weekly":
+        return weeklyAttendance;
+      case "Monthly":
+        return monthlyAttendance;
+      default:
+        return dailyAttendance;
+    }
+  }, [selectedPeriod]);
+
   const filteredRecords = useMemo(() => {
-    return attendanceRecords.filter((record) => {
+    return currentRecords.filter((record) => {
       const branchMatch = selectedBranch === "All" || record.branch === selectedBranch;
       const serviceMatch = selectedService === "All" || record.service === selectedService;
       return branchMatch && serviceMatch;
     });
-  }, [selectedBranch, selectedService]);
+  }, [currentRecords, selectedBranch, selectedService]);
+
+  // Analytics calculations
+  const analytics = useMemo(() => {
+    const totalAttendees = filteredRecords.length;
+    const uniqueBranches = [...new Set(filteredRecords.map(r => r.branch))].length;
+    
+    // Count by service
+    const serviceCount: { [key: string]: number } = {};
+    filteredRecords.forEach(record => {
+      serviceCount[record.service] = (serviceCount[record.service] || 0) + 1;
+    });
+    const topService = Object.entries(serviceCount).sort((a, b) => b[1] - a[1])[0];
+    
+    // Count by branch
+    const branchCount: { [key: string]: number } = {};
+    filteredRecords.forEach(record => {
+      branchCount[record.branch] = (branchCount[record.branch] || 0) + 1;
+    });
+    const topBranch = Object.entries(branchCount).sort((a, b) => b[1] - a[1])[0];
+
+    // Calculate average per day based on period
+    let avgPerDay = totalAttendees;
+    if (selectedPeriod === "Weekly") avgPerDay = Math.round(totalAttendees / 7);
+    if (selectedPeriod === "Monthly") avgPerDay = Math.round(totalAttendees / 30);
+
+    return {
+      totalAttendees,
+      uniqueBranches,
+      topService: topService ? `${topService[0]} (${topService[1]})` : "N/A",
+      topBranch: topBranch ? `${topBranch[0]} (${topBranch[1]})` : "N/A",
+      avgPerDay,
+    };
+  }, [filteredRecords, selectedPeriod]);
 
   const handleBarCodeScanned = ({ type, data }: { type: string; data: string }) => {
     setScanned(true);
@@ -127,6 +174,63 @@ export default function AttendanceRecords() {
           </TouchableOpacity>
         </View>
 
+        {/* Time Period Filters */}
+        <View style={styles.periodFilters}>
+          <Text style={styles.sectionTitle}>Time Period</Text>
+          <View style={styles.periodRow}>
+            {timePeriods.map((period) => {
+              const active = period === selectedPeriod;
+              return (
+                <TouchableOpacity
+                  key={period}
+                  onPress={() => setSelectedPeriod(period)}
+                  style={[
+                    styles.periodButton,
+                    active && { backgroundColor: primary, borderColor: primary }
+                  ]}
+                >
+                  <Text style={[styles.periodText, active && { color: "#fff", fontWeight: "700" }]}>
+                    {period}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
+        {/* Analytics Cards */}
+        <View style={styles.analyticsSection}>
+          <Text style={styles.sectionTitle}>Analytics</Text>
+          <View style={styles.analyticsGrid}>
+            <View style={[styles.analyticsCard, { backgroundColor: `${secondary}15` }]}>
+              <Ionicons name="people" size={24} color={secondary} />
+              <Text style={styles.analyticsValue}>{analytics.totalAttendees}</Text>
+              <Text style={styles.analyticsLabel}>Total Attendees</Text>
+            </View>
+            <View style={[styles.analyticsCard, { backgroundColor: `${primary}15` }]}>
+              <Ionicons name="trending-up" size={24} color={primary} />
+              <Text style={styles.analyticsValue}>{analytics.avgPerDay}</Text>
+              <Text style={styles.analyticsLabel}>Avg per Day</Text>
+            </View>
+          </View>
+          <View style={styles.analyticsGrid}>
+            <View style={[styles.analyticsCard, { backgroundColor: "#ffeaa7" }]}>
+              <Ionicons name="calendar" size={24} color="#fdcb6e" />
+              <Text style={styles.analyticsValue} numberOfLines={1} adjustsFontSizeToFit>
+                {analytics.topService.split(' ')[0]}
+              </Text>
+              <Text style={styles.analyticsLabel}>Top Event</Text>
+            </View>
+            <View style={[styles.analyticsCard, { backgroundColor: "#dfe6e9" }]}>
+              <Ionicons name="location" size={24} color="#636e72" />
+              <Text style={styles.analyticsValue} numberOfLines={1} adjustsFontSizeToFit>
+                {analytics.topBranch.split(' ')[0]}
+              </Text>
+              <Text style={styles.analyticsLabel}>Top Branch</Text>
+            </View>
+          </View>
+        </View>
+
         <View style={styles.filtersBlock}>
           <Text style={styles.sectionTitle}>Filters</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
@@ -163,20 +267,28 @@ export default function AttendanceRecords() {
           </ScrollView>
         </View>
 
-        <Text style={[styles.sectionTitle, { marginTop: 8 }]}>Recent Attendance</Text>
-        {filteredRecords.map((record) => (
-          <View key={record.id} style={styles.recordRow}>
-            <View style={styles.avatarWrap}>
-              <Image source={{ uri: record.avatar }} style={styles.avatar} />
+        <Text style={[styles.sectionTitle, { marginTop: 8 }]}>Attendance Records ({selectedPeriod})</Text>
+        {filteredRecords.length > 0 ? (
+          filteredRecords.map((record) => (
+            <View key={record.id} style={styles.recordRow}>
+              <View style={styles.avatarWrap}>
+                <Image source={{ uri: record.avatar }} style={styles.avatar} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.name}>{record.name}</Text>
+                <Text style={styles.time}>{record.time} • {record.date}</Text>
+                <Text style={styles.meta}>{record.branch} • {record.service}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#999" />
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.name}>{record.name}</Text>
-              <Text style={styles.time}>{record.time}</Text>
-              <Text style={styles.meta}>{record.branch} • {record.service}</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color="#999" />
+          ))
+        ) : (
+          <View style={styles.emptyState}>
+            <Ionicons name="calendar-outline" size={48} color="#ccc" />
+            <Text style={styles.emptyText}>No attendance records found</Text>
+            <Text style={styles.emptySubtext}>Try adjusting your filters</Text>
           </View>
-        ))}
+        )}
         <View style={{ height: 120 }} />
       </ScrollView>
 
@@ -297,6 +409,75 @@ const styles = StyleSheet.create({
   filterText: {
     fontSize: 13,
     color: "#444",
+  },
+  periodFilters: {
+    marginBottom: 20,
+  },
+  periodRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  periodButton: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#e3e7e4",
+    alignItems: "center",
+  },
+  periodText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#444",
+  },
+  analyticsSection: {
+    marginBottom: 20,
+  },
+  analyticsGrid: {
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 12,
+  },
+  analyticsCard: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 12,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  analyticsValue: {
+    fontSize: 24,
+    fontWeight: "800",
+    color: "#111",
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  analyticsLabel: {
+    fontSize: 12,
+    color: "#666",
+    textAlign: "center",
+  },
+  emptyState: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 60,
+  },
+  emptyText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#666",
+    marginTop: 16,
+  },
+  emptySubtext: {
+    fontSize: 13,
+    color: "#999",
+    marginTop: 6,
   },
   recordRow: {
     flexDirection: "row",

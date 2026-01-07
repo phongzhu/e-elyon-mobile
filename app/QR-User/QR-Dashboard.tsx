@@ -1,13 +1,15 @@
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Alert,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { supabase } from "../../src/lib/supabaseClient";
 import QRNavbar from "./qr-navbar";
@@ -17,6 +19,7 @@ export default function QRDashboard() {
   const [showScanner, setShowScanner] = useState(false);
   const [scanned, setScanned] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
+  const [showSettings, setShowSettings] = useState(false);
 
   const primary = branding?.primary_color || "#064622";
   const secondary = branding?.secondary_color || "#0C8A43";
@@ -56,12 +59,36 @@ export default function QRDashboard() {
     { id: 2, title: "Bible Study", time: "11:30 AM", icon: "book" as const },
   ];
 
+  const handleLogout = async () => {
+    Alert.alert(
+      "Logout",
+      "Are you sure you want to logout?",
+      [
+        {
+          text: "Cancel",
+          style: "cancel"
+        },
+        {
+          text: "Logout",
+          style: "destructive",
+          onPress: async () => {
+            await supabase.auth.signOut();
+            router.replace("/login");
+          }
+        }
+      ]
+    );
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: "#fff" }}>
       {/* Header */}
       <View style={[styles.header, { backgroundColor: primary }]}>
         <Text style={styles.headerTitle}>Dashboard</Text>
-        <TouchableOpacity style={styles.settingsButton}>
+        <TouchableOpacity 
+          style={styles.settingsButton}
+          onPress={() => setShowSettings(true)}
+        >
           <Ionicons name="settings-outline" size={24} color="#fff" />
         </TouchableOpacity>
       </View>
@@ -143,6 +170,36 @@ export default function QRDashboard() {
                 </TouchableOpacity>
               </View>
             )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Settings Modal */}
+      <Modal visible={showSettings} transparent animationType="fade">
+        <View style={styles.settingsModalOverlay}>
+          <View style={styles.settingsModalContent}>
+            <View style={styles.settingsModalHeader}>
+              <Text style={styles.settingsModalTitle}>Settings</Text>
+              <TouchableOpacity onPress={() => setShowSettings(false)}>
+                <Ionicons name="close" size={24} color="#000" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.settingsOptions}>
+              <TouchableOpacity 
+                style={styles.settingsOption}
+                onPress={handleLogout}
+              >
+                <View style={[styles.settingsOptionIcon, { backgroundColor: '#ff000020' }]}>
+                  <Ionicons name="log-out-outline" size={24} color="#ff0000" />
+                </View>
+                <View style={styles.settingsOptionText}>
+                  <Text style={styles.settingsOptionTitle}>Logout</Text>
+                  <Text style={styles.settingsOptionSubtitle}>Sign out of your account</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color="#999" />
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -318,5 +375,64 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 15,
     fontWeight: "700",
+  },
+  settingsModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  settingsModalContent: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    width: "85%",
+    maxWidth: 400,
+    overflow: "hidden",
+  },
+  settingsModalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+  },
+  settingsModalTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#000",
+  },
+  settingsOptions: {
+    padding: 16,
+  },
+  settingsOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+    backgroundColor: "#f9f9f9",
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  settingsOptionIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  settingsOptionText: {
+    flex: 1,
+  },
+  settingsOptionTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#000",
+    marginBottom: 4,
+  },
+  settingsOptionSubtitle: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#666",
   },
 });
