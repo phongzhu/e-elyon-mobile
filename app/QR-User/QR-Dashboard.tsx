@@ -3,13 +3,13 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
-  Alert,
-  Modal,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    Alert,
+    Modal,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { supabase } from "../../src/lib/supabaseClient";
 import QRNavbar from "./qr-navbar";
@@ -26,7 +26,10 @@ export default function QRDashboard() {
 
   useEffect(() => {
     (async () => {
-      const { data, error } = await supabase.from("ui_settings").select("*").single();
+      const { data, error } = await supabase
+        .from("ui_settings")
+        .select("*")
+        .single();
       if (error) {
         console.error("Branding fetch error:", error);
       } else {
@@ -35,11 +38,16 @@ export default function QRDashboard() {
     })();
   }, []);
 
-  const handleBarCodeScanned = ({ type, data }: { type: string; data: string }) => {
+  const handleBarCodeScanned = ({
+    type,
+    data,
+  }: {
+    type: string;
+    data: string;
+  }) => {
     setScanned(true);
     setShowScanner(false);
     // Handle scanned QR code data here
-    console.log(`QR Code scanned! Type: ${type}, Data: ${data}`);
     // You can add logic to process the attendance based on the scanned data
   };
 
@@ -55,29 +63,30 @@ export default function QRDashboard() {
   };
 
   const recentActivities = [
-    { id: 1, title: "Sunday Service", time: "10:00 AM", icon: "calendar" as const },
+    {
+      id: 1,
+      title: "Sunday Service",
+      time: "10:00 AM",
+      icon: "calendar" as const,
+    },
     { id: 2, title: "Bible Study", time: "11:30 AM", icon: "book" as const },
   ];
 
   const handleLogout = async () => {
-    Alert.alert(
-      "Logout",
-      "Are you sure you want to logout?",
-      [
-        {
-          text: "Cancel",
-          style: "cancel"
+    Alert.alert("Logout", "Are you sure you want to logout?", [
+      {
+        text: "Cancel",
+        style: "cancel",
+      },
+      {
+        text: "Logout",
+        style: "destructive",
+        onPress: async () => {
+          await supabase.auth.signOut();
+          router.replace("/login");
         },
-        {
-          text: "Logout",
-          style: "destructive",
-          onPress: async () => {
-            await supabase.auth.signOut();
-            router.replace("/login");
-          }
-        }
-      ]
-    );
+      },
+    ]);
   };
 
   return (
@@ -85,7 +94,7 @@ export default function QRDashboard() {
       {/* Header */}
       <View style={[styles.header, { backgroundColor: primary }]}>
         <Text style={styles.headerTitle}>Dashboard</Text>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.settingsButton}
           onPress={() => setShowSettings(true)}
         >
@@ -96,11 +105,15 @@ export default function QRDashboard() {
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
         {/* Stats Cards */}
         <View style={styles.statsContainer}>
-          <View style={[styles.statCard, { backgroundColor: `${secondary}20` }]}>
+          <View
+            style={[styles.statCard, { backgroundColor: `${secondary}20` }]}
+          >
             <Text style={styles.statLabel}>Total Attendees</Text>
             <Text style={[styles.statValue, { color: primary }]}>1,234</Text>
           </View>
-          <View style={[styles.statCard, { backgroundColor: `${secondary}20` }]}>
+          <View
+            style={[styles.statCard, { backgroundColor: `${secondary}20` }]}
+          >
             <Text style={styles.statLabel}>Events</Text>
             <Text style={[styles.statValue, { color: primary }]}>5</Text>
           </View>
@@ -111,7 +124,12 @@ export default function QRDashboard() {
           <Text style={styles.sectionTitle}>Recent Activity</Text>
           {recentActivities.map((activity) => (
             <View key={activity.id} style={styles.activityItem}>
-              <View style={[styles.activityIcon, { backgroundColor: `${secondary}20` }]}>
+              <View
+                style={[
+                  styles.activityIcon,
+                  { backgroundColor: `${secondary}20` },
+                ]}
+              >
                 <Ionicons name={activity.icon} size={24} color={secondary} />
               </View>
               <View style={styles.activityInfo}>
@@ -161,12 +179,19 @@ export default function QRDashboard() {
             ) : (
               <View style={styles.permissionContainer}>
                 <Ionicons name="camera-outline" size={64} color="#999" />
-                <Text style={styles.permissionText}>Camera permission required</Text>
+                <Text style={styles.permissionText}>
+                  Camera permission required
+                </Text>
                 <TouchableOpacity
-                  style={[styles.permissionButton, { backgroundColor: primary }]}
+                  style={[
+                    styles.permissionButton,
+                    { backgroundColor: primary },
+                  ]}
                   onPress={requestPermission}
                 >
-                  <Text style={styles.permissionButtonText}>Grant Permission</Text>
+                  <Text style={styles.permissionButtonText}>
+                    Grant Permission
+                  </Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -186,16 +211,23 @@ export default function QRDashboard() {
             </View>
 
             <View style={styles.settingsOptions}>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={styles.settingsOption}
                 onPress={handleLogout}
               >
-                <View style={[styles.settingsOptionIcon, { backgroundColor: '#ff000020' }]}>
+                <View
+                  style={[
+                    styles.settingsOptionIcon,
+                    { backgroundColor: "#ff000020" },
+                  ]}
+                >
                   <Ionicons name="log-out-outline" size={24} color="#ff0000" />
                 </View>
                 <View style={styles.settingsOptionText}>
                   <Text style={styles.settingsOptionTitle}>Logout</Text>
-                  <Text style={styles.settingsOptionSubtitle}>Sign out of your account</Text>
+                  <Text style={styles.settingsOptionSubtitle}>
+                    Sign out of your account
+                  </Text>
                 </View>
                 <Ionicons name="chevron-forward" size={20} color="#999" />
               </TouchableOpacity>

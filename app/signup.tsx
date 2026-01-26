@@ -13,7 +13,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 import DropDownPicker from "react-native-dropdown-picker";
 import Animated, {
@@ -32,7 +32,7 @@ const { width, height } = Dimensions.get("window");
 // Philippine phone number formatter
 const formatPhilippinePhone = (value: string) => {
   let digits = value.replace(/\D/g, "");
-  
+
   if (digits.startsWith("63")) {
     digits = digits.slice(0, 12);
   } else if (digits.startsWith("9")) {
@@ -42,10 +42,19 @@ const formatPhilippinePhone = (value: string) => {
   } else {
     digits = digits.slice(0, 12);
   }
-  
+
   if (digits.startsWith("63")) {
     if (digits[2] === "9") {
-      return "+" + digits.slice(0, 2) + " " + digits.slice(2, 5) + " " + digits.slice(5, 8) + " " + digits.slice(8, 12);
+      return (
+        "+" +
+        digits.slice(0, 2) +
+        " " +
+        digits.slice(2, 5) +
+        " " +
+        digits.slice(5, 8) +
+        " " +
+        digits.slice(8, 12)
+      );
     }
   }
   return "+" + digits;
@@ -54,8 +63,9 @@ const formatPhilippinePhone = (value: string) => {
 export default function Signup() {
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [profileImageUploading, setProfileImageUploading] = useState(false);
-  const [stage, setStage] = useState<"auth" | "otp" | "credentials" | "address">("auth");
-  const [signupMethod, setSignupMethod] = useState<"email" | "google">("email");
+  const [stage, setStage] = useState<
+    "auth" | "otp" | "credentials" | "address"
+  >("auth");
   const [branding, setBranding] = useState<any>(null);
 
   // Auth stage
@@ -85,7 +95,9 @@ export default function Signup() {
   const [contactNumber, setContactNumber] = useState("");
   const [showBirthDatePicker, setShowBirthDatePicker] = useState(false);
   const [showBaptismalDatePicker, setShowBaptismalDatePicker] = useState(false);
-  const [branches, setBranches] = useState<{ branch_id: number; name: string }[]>([]);
+  const [branches, setBranches] = useState<
+    { branch_id: number; name: string }[]
+  >([]);
 
   // Address stage
   const [street, setStreet] = useState("");
@@ -97,41 +109,52 @@ export default function Signup() {
   const [cityOpen, setCityOpen] = useState(false);
   const [barangay, setBarangay] = useState("");
   const [barangayOpen, setBarangayOpen] = useState(false);
-  const [activeAddressDropdown, setActiveAddressDropdown] = useState<"region" | "province" | "city" | "barangay" | null>(null);
- 
+  const [activeAddressDropdown, setActiveAddressDropdown] = useState<
+    "region" | "province" | "city" | "barangay" | null
+  >(null);
 
   // Derived address data from philippine_provinces_cities_municipalities_and_barangays_2019v2.json
-  const regionOptions = Object.entries(philippineAddresses).map(([key, value]: [string, any]) => ({ 
-    label: value.region_name || key, 
-    value: key 
-  })).sort((a, b) => a.label.localeCompare(b.label));
-  
-  const provinceOptions = region && (philippineAddresses as any)[region] ? (
-    Object.keys((philippineAddresses as any)[region].province_list).map((provinceName: string) => ({ 
-      label: provinceName, 
-      value: provinceName 
-    })).sort((a, b) => a.label.localeCompare(b.label))
-  ) : [];
-  
-  const cityOptions = province && region && (philippineAddresses as any)[region]?.province_list?.[province] ? (
-    Object.keys((philippineAddresses as any)[region].province_list[province].municipality_list).map((cityName: string) => ({ 
-      label: cityName, 
-      value: cityName 
-    })).sort((a, b) => a.label.localeCompare(b.label))
-  ) : [];
-  
+  const regionOptions = Object.entries(philippineAddresses)
+    .map(([key, value]: [string, any]) => ({
+      label: value.region_name || key,
+      value: key,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  const provinceOptions =
+    region && (philippineAddresses as any)[region]
+      ? Object.keys((philippineAddresses as any)[region].province_list)
+          .map((provinceName: string) => ({
+            label: provinceName,
+            value: provinceName,
+          }))
+          .sort((a, b) => a.label.localeCompare(b.label))
+      : [];
+
+  const cityOptions =
+    province &&
+    region &&
+    (philippineAddresses as any)[region]?.province_list?.[province]
+      ? Object.keys(
+          (philippineAddresses as any)[region].province_list[province]
+            .municipality_list,
+        )
+          .map((cityName: string) => ({
+            label: cityName,
+            value: cityName,
+          }))
+          .sort((a, b) => a.label.localeCompare(b.label))
+      : [];
+
   const barangayOptions =
     region &&
     province &&
     city &&
-    (philippineAddresses as any)[region]
-      ?.province_list?.[province]
-      ?.municipality_list?.[city]
-      ?.barangay_list
-      ? (philippineAddresses as any)[region]
-          .province_list[province]
-          .municipality_list[city]
-          .barangay_list
+    (philippineAddresses as any)[region]?.province_list?.[province]
+      ?.municipality_list?.[city]?.barangay_list
+      ? (philippineAddresses as any)[region].province_list[
+          province
+        ].municipality_list[city].barangay_list
           .map((b: string) => ({
             label: b,
             value: b,
@@ -164,12 +187,22 @@ export default function Signup() {
   }, [city]);
 
   const [isLoading, setIsLoading] = useState(false);
-  const otpRefs = React.useRef<(TextInput | null)[]>([null, null, null, null, null, null]);
+  const otpRefs = React.useRef<(TextInput | null)[]>([
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+  ]);
 
   // Fetch branding
   useEffect(() => {
     (async () => {
-      const { data, error } = await supabase.from("ui_settings").select("*").single();
+      const { data, error } = await supabase
+        .from("ui_settings")
+        .select("*")
+        .single();
       if (error) console.error("❌ Branding fetch error:", error);
       else setBranding(data);
     })();
@@ -182,7 +215,8 @@ export default function Signup() {
   const logo = branding?.logo_icon
     ? branding.logo_icon.startsWith("http")
       ? branding.logo_icon
-      : supabase.storage.from("logos").getPublicUrl(branding.logo_icon).data.publicUrl
+      : supabase.storage.from("logos").getPublicUrl(branding.logo_icon).data
+          .publicUrl
     : null;
 
   // Animations
@@ -190,23 +224,29 @@ export default function Signup() {
   const formTranslateY = useSharedValue(50);
 
   useEffect(() => {
-    formOpacity.value = withTiming(1, { duration: 700, easing: Easing.out(Easing.cubic) });
-    formTranslateY.value = withTiming(0, { duration: 700, easing: Easing.out(Easing.cubic) });
+    formOpacity.value = withTiming(1, {
+      duration: 700,
+      easing: Easing.out(Easing.cubic),
+    });
+    formTranslateY.value = withTiming(0, {
+      duration: 700,
+      easing: Easing.out(Easing.cubic),
+    });
   }, [stage]);
 
   // ✅ Load branches from Supabase
   useEffect(() => {
-     const fetchBranches = async () => {
-    const { data, error } = await supabase
-      .from("branches")
-      .select("branch_id, name");
+    const fetchBranches = async () => {
+      const { data, error } = await supabase
+        .from("branches")
+        .select("branch_id, name");
 
-    if (error) {
-      console.error("Error fetching branches:", error);
-    } else {
-      setBranches((data as { branch_id: number; name: string }[]) || []);
-    }
-  };
+      if (error) {
+        console.error("Error fetching branches:", error);
+      } else {
+        setBranches((data as { branch_id: number; name: string }[]) || []);
+      }
+    };
 
     if (stage === "credentials") fetchBranches();
   }, [stage]);
@@ -244,40 +284,8 @@ export default function Signup() {
       return;
     }
 
-    setSignupMethod("email");
     setOtp(""); // clear old input
     setStage("otp");
-  };
-
-  // ✅ Step 1 (alternative): Google OAuth signup
-  const handleGoogleSignup = async () => {
-    setIsLoading(true);
-    
-    // TODO: Uncomment when ready to insert into database
-    // const { data, error } = await supabase.auth.signInWithOAuth({
-    //   provider: "google",
-    //   options: {
-    //     redirectTo: "exp://localhost:8081",
-    //     queryParams: { access_type: "offline", prompt: "consent" },
-    //   },
-    // });
-
-    setIsLoading(false);
-
-    // if (error) {
-    //   Alert.alert("Google Sign-up Failed", error.message);
-    //   return;
-    // }
-
-    // if (data?.url) {
-      setSignupMethod("google");
-      setStage("credentials");
-      // try {
-      //   await Linking.openURL(data.url);
-      // } catch {
-      //   Alert.alert("Open browser failed", data.url);
-      // }
-    // }
   };
 
   // ✅ Step 2: Submit OTP
@@ -290,31 +298,33 @@ export default function Signup() {
     setIsLoading(true);
 
     // Verify OTP with Supabase
-    supabase.auth.verifyOtp({
-      email,
-      token: otp,
-      type: "email",
-    }).then(async ({ data, error }) => {
-      if (error) {
+    supabase.auth
+      .verifyOtp({
+        email,
+        token: otp,
+        type: "email",
+      })
+      .then(async ({ data, error }) => {
+        if (error) {
+          setIsLoading(false);
+          Alert.alert("OTP Failed", error.message);
+          return;
+        }
+
+        // Set password after OTP verification
+        const { error: pwError } = await supabase.auth.updateUser({
+          password,
+        });
+
         setIsLoading(false);
-        Alert.alert("OTP Failed", error.message);
-        return;
-      }
 
-      // Set password after OTP verification
-      const { error: pwError } = await supabase.auth.updateUser({
-        password,
+        if (pwError) {
+          Alert.alert("Password Setup Failed", pwError.message);
+          return;
+        }
+
+        setStage("credentials");
       });
-
-      setIsLoading(false);
-
-      if (pwError) {
-        Alert.alert("Password Setup Failed", pwError.message);
-        return;
-      }
-
-      setStage("credentials");
-    });
   };
 
   // Resend OTP handler
@@ -332,7 +342,14 @@ export default function Signup() {
 
   // ✅ Step 3: Submit credentials
   const handleCredentialsSubmit = async () => {
-    if (!firstName || !lastName || !gender || !birthDate || !contactNumber || !branchId) {
+    if (
+      !firstName ||
+      !lastName ||
+      !gender ||
+      !birthDate ||
+      !contactNumber ||
+      !branchId
+    ) {
       Alert.alert("Missing Fields", "Please fill out all required fields.");
       return;
     }
@@ -349,42 +366,49 @@ export default function Signup() {
     setIsLoading(true);
     (async () => {
       try {
-        let photo_path = null;
+        let photo_path: string | null = null;
+
         // Upload profile image if selected
         if (profileImage) {
           try {
             setProfileImageUploading(true);
+
             const fileName = `${email.replace(/[^a-zA-Z0-9]/g, "_")}_${Date.now()}.jpg`;
             const objectKey = `profile_pics/${fileName}`;
-            const fileUri = profileImage;
-            // Convert local file URI to ArrayBuffer
-            const res = (await fetch(fileUri));
+            const res = await fetch(profileImage);
             const arrayBuffer = await res.arrayBuffer();
-            // Upload as binary into profile_pics/ folder
+
             const { error: uploadError } = await supabase.storage
               .from("profile_pics")
               .upload(objectKey, arrayBuffer, {
                 contentType: "image/jpeg",
                 upsert: true,
               });
+
             setProfileImageUploading(false);
+
             if (uploadError) {
               Alert.alert("Image Upload Failed", uploadError.message);
               return;
             }
+
             const { data: publicUrlData } = supabase.storage
               .from("profile_pics")
               .getPublicUrl(objectKey);
+
             photo_path = publicUrlData?.publicUrl ?? null;
           } catch (imgErr: any) {
             setProfileImageUploading(false);
-            Alert.alert("Image Upload Error", imgErr?.message || "Failed to upload image.");
+            Alert.alert(
+              "Image Upload Error",
+              imgErr?.message || "Failed to upload image.",
+            );
             return;
           }
         }
 
         // Insert into users_details, set joined_date to today
-        const today = new Date().toISOString().split('T')[0];
+        const today = new Date().toISOString().split("T")[0];
         const { data: detailsData, error: detailsError } = await supabase
           .from("users_details")
           .insert([
@@ -404,7 +428,7 @@ export default function Signup() {
               province,
               contact_number: contactNumber,
               photo_path,
-              joined_date: today
+              joined_date: today,
             },
           ])
           .select()
@@ -412,7 +436,10 @@ export default function Signup() {
 
         if (detailsError) {
           setIsLoading(false);
-          Alert.alert("Error", detailsError.message || "Failed to save user details.");
+          Alert.alert(
+            "Error",
+            detailsError.message || "Failed to save user details.",
+          );
           return;
         }
 
@@ -423,33 +450,28 @@ export default function Signup() {
           return;
         }
 
-        // Prepare _member email (suffix after .com)
+        // Prepare _member email
         let memberEmail = email;
+
         if (memberEmail.endsWith(".com")) {
           memberEmail = memberEmail.replace(".com", ".com_member");
         } else {
           memberEmail = memberEmail + "_member";
         }
 
-        // Get auth user id if available
+        // Get auth user id if available (for future use)
         let auth_user_id = null;
-        const { data: authUserData, error: authUserError } = await supabase.auth.getUser();
-        if (!authUserError && authUserData?.user?.id) {
-          auth_user_id = authUserData.user.id;
-        }
 
         // Insert into users (do NOT include branch_id, not in schema)
-        const { error: usersError } = await supabase
-          .from("users")
-          .insert([
-            {
-              user_details_id,
-              email: memberEmail,
-              role: "member",
-              is_active: true,
-              auth_user_id,
-            },
-          ]);
+        const { error: usersError } = await supabase.from("users").insert([
+          {
+            user_details_id,
+            email: memberEmail,
+            role: "member",
+            is_active: true,
+            auth_user_id,
+          },
+        ]);
 
         if (usersError) {
           setIsLoading(false);
@@ -459,7 +481,10 @@ export default function Signup() {
 
         router.replace("/login");
       } catch (err: any) {
-        Alert.alert("Unexpected Error", err?.message || "Something went wrong.");
+        Alert.alert(
+          "Unexpected Error",
+          err?.message || "Something went wrong.",
+        );
       } finally {
         setIsLoading(false);
       }
@@ -468,7 +493,15 @@ export default function Signup() {
 
   const renderAuthStage = () => (
     <Animated.View style={[formAnimStyle, { width: "100%", maxWidth: 420 }]}>
-      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+      <Text
+        style={{
+          color: "#C8C8C8",
+          fontSize: 12,
+          fontWeight: "700",
+          marginBottom: 10,
+          letterSpacing: 1.2,
+        }}
+      >
         EMAIL ADDRESS
       </Text>
       <View style={{ position: "relative", marginBottom: 20 }}>
@@ -482,7 +515,9 @@ export default function Signup() {
           placeholder="Enter your email"
           placeholderTextColor="#707070"
           style={{
-            backgroundColor: emailFocused ? "rgba(255,255,255,1)" : "rgba(255,255,255,0.95)",
+            backgroundColor: emailFocused
+              ? "rgba(255,255,255,1)"
+              : "rgba(255,255,255,0.95)",
             borderRadius: 14,
             paddingVertical: 18,
             paddingLeft: 48,
@@ -506,7 +541,15 @@ export default function Signup() {
         />
       </View>
 
-      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+      <Text
+        style={{
+          color: "#C8C8C8",
+          fontSize: 12,
+          fontWeight: "700",
+          marginBottom: 10,
+          letterSpacing: 1.2,
+        }}
+      >
         PASSWORD
       </Text>
       <View style={{ position: "relative", marginBottom: 20 }}>
@@ -520,7 +563,9 @@ export default function Signup() {
           placeholder="Enter your password"
           placeholderTextColor="#707070"
           style={{
-            backgroundColor: passwordFocused ? "rgba(255,255,255,1)" : "rgba(255,255,255,0.95)",
+            backgroundColor: passwordFocused
+              ? "rgba(255,255,255,1)"
+              : "rgba(255,255,255,0.95)",
             borderRadius: 14,
             paddingVertical: 18,
             paddingLeft: 48,
@@ -554,7 +599,15 @@ export default function Signup() {
         </TouchableOpacity>
       </View>
 
-      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+      <Text
+        style={{
+          color: "#C8C8C8",
+          fontSize: 12,
+          fontWeight: "700",
+          marginBottom: 10,
+          letterSpacing: 1.2,
+        }}
+      >
         CONFIRM PASSWORD
       </Text>
       <View style={{ position: "relative", marginBottom: 28 }}>
@@ -568,7 +621,9 @@ export default function Signup() {
           placeholder="Confirm your password"
           placeholderTextColor="#707070"
           style={{
-            backgroundColor: confirmPasswordFocused ? "rgba(255,255,255,1)" : "rgba(255,255,255,0.95)",
+            backgroundColor: confirmPasswordFocused
+              ? "rgba(255,255,255,1)"
+              : "rgba(255,255,255,0.95)",
             borderRadius: 14,
             paddingVertical: 18,
             paddingLeft: 48,
@@ -576,7 +631,9 @@ export default function Signup() {
             fontSize: 15,
             borderWidth: 2,
             color: "#0a1612",
-            borderColor: confirmPasswordFocused ? primary : "rgba(11,101,22,0.2)",
+            borderColor: confirmPasswordFocused
+              ? primary
+              : "rgba(11,101,22,0.2)",
             shadowColor: confirmPasswordFocused ? primary : "transparent",
             shadowOffset: { width: 0, height: 4 },
             shadowOpacity: 0.2,
@@ -618,76 +675,71 @@ export default function Signup() {
           elevation: 6,
         }}
       >
-        <Text style={{ color: "#fff", fontWeight: "800", fontSize: 16, letterSpacing: 1.5 }}>
+        <Text
+          style={{
+            color: "#fff",
+            fontWeight: "800",
+            fontSize: 16,
+            letterSpacing: 1.5,
+          }}
+        >
           {isLoading ? "CREATING ACCOUNT..." : "CONTINUE"}
         </Text>
       </TouchableOpacity>
 
-      <View style={{ flexDirection: "row", alignItems: "center", marginVertical: 22 }}>
-        <View style={{ flex: 1, height: 1, backgroundColor: "rgba(200,200,200,0.25)" }} />
-        <Text style={{ color: "#B0B0B0", paddingHorizontal: 14, fontSize: 12, fontWeight: "700", letterSpacing: 1 }}>OR</Text>
-        <View style={{ flex: 1, height: 1, backgroundColor: "rgba(200,200,200,0.25)" }} />
-      </View>
-
       <TouchableOpacity
-        onPress={handleGoogleSignup}
-        disabled={isLoading}
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: "#ffffff",
-          borderRadius: 14,
-          paddingVertical: 16,
-          paddingHorizontal: 20,
-          shadowColor: "#000",
-          shadowOpacity: 0.18,
-          shadowRadius: 8,
-          shadowOffset: { width: 0, height: 4 },
-          elevation: 5,
-          borderWidth: 1,
-          borderColor: "rgba(0,0,0,0.05)",
-          opacity: isLoading ? 0.6 : 1,
-        }}
+        onPress={() => router.replace("/login")}
+        style={{ alignItems: "center", marginTop: 28 }}
       >
-        <Svg width={26} height={26} viewBox="0 0 24 24" style={{ marginRight: 12 }}>
-          <Path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
-          <Path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
-          <Path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC04" />
-          <Path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
-        </Svg>
-        <Text style={{ color: "#333", fontWeight: "700", fontSize: 15, letterSpacing: 0.5 }}>Sign up with Google</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity onPress={() => router.replace("/login")} style={{ alignItems: "center", marginTop: 28 }}>
         <Text style={{ color: "#CCCCCC", fontSize: 14 }}>
-          Already have an account? <Text style={{ color: secondary, fontWeight: "700", letterSpacing: 0.5 }}>Log in here</Text>
+          Already have an account?{" "}
+          <Text
+            style={{ color: secondary, fontWeight: "700", letterSpacing: 0.5 }}
+          >
+            Log in here
+          </Text>
         </Text>
       </TouchableOpacity>
     </Animated.View>
   );
 
   const pickProfileImage = async () => {
-    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    const permissionResult =
+      await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permissionResult.granted) {
-      Alert.alert('Permission required', 'Permission to access media library is required!');
+      Alert.alert(
+        "Permission required",
+        "Permission to access media library is required!",
+      );
       return;
     }
-        const pickerResult = await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ['images'],
-          allowsEditing: true,
-          aspect: [1, 1],
-          quality: 0.7,
-        });
-    if (!pickerResult.canceled && pickerResult.assets && pickerResult.assets.length > 0) {
+    const pickerResult = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+    if (
+      !pickerResult.canceled &&
+      pickerResult.assets &&
+      pickerResult.assets.length > 0
+    ) {
       setProfileImage(pickerResult.assets[0].uri);
     }
   };
 
   const renderCredentialsStage = () => (
-    <Animated.View style={[formAnimStyle, { width: "100%", maxWidth: 420 }]}> 
+    <Animated.View style={[formAnimStyle, { width: "100%", maxWidth: 420 }]}>
       {/* Profile Picture Picker */}
-      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+      <Text
+        style={{
+          color: "#C8C8C8",
+          fontSize: 12,
+          fontWeight: "700",
+          marginBottom: 10,
+          letterSpacing: 1.2,
+        }}
+      >
         PROFILE PICTURE
       </Text>
       <TouchableOpacity
@@ -703,28 +755,45 @@ export default function Signup() {
           <View style={{ alignItems: "center" }}>
             <RNImage
               source={{ uri: profileImage }}
-              style={{ width: 90, height: 90, borderRadius: 45, marginBottom: 8, borderWidth: 2, borderColor: "#ccc" }}
+              style={{
+                width: 90,
+                height: 90,
+                borderRadius: 45,
+                marginBottom: 8,
+                borderWidth: 2,
+                borderColor: "#ccc",
+              }}
               resizeMode="cover"
             />
             <Text style={{ color: "#888", fontSize: 12 }}>Change Photo</Text>
           </View>
         ) : (
-          <View style={{
-            width: 90,
-            height: 90,
-            borderRadius: 45,
-            backgroundColor: "#e0e0e0",
-            alignItems: "center",
-            justifyContent: "center",
-            marginBottom: 8,
-            borderWidth: 2,
-            borderColor: "#ccc"
-          }}>
+          <View
+            style={{
+              width: 90,
+              height: 90,
+              borderRadius: 45,
+              backgroundColor: "#e0e0e0",
+              alignItems: "center",
+              justifyContent: "center",
+              marginBottom: 8,
+              borderWidth: 2,
+              borderColor: "#ccc",
+            }}
+          >
             <Ionicons name="camera-outline" size={32} color="#888" />
           </View>
         )}
       </TouchableOpacity>
-      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+      <Text
+        style={{
+          color: "#C8C8C8",
+          fontSize: 12,
+          fontWeight: "700",
+          marginBottom: 10,
+          letterSpacing: 1.2,
+        }}
+      >
         FIRST NAME *
       </Text>
       <TextInput
@@ -745,7 +814,15 @@ export default function Signup() {
         value={firstName}
       />
 
-      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+      <Text
+        style={{
+          color: "#C8C8C8",
+          fontSize: 12,
+          fontWeight: "700",
+          marginBottom: 10,
+          letterSpacing: 1.2,
+        }}
+      >
         MIDDLE NAME
       </Text>
       <TextInput
@@ -766,7 +843,15 @@ export default function Signup() {
         value={middleName}
       />
 
-      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+      <Text
+        style={{
+          color: "#C8C8C8",
+          fontSize: 12,
+          fontWeight: "700",
+          marginBottom: 10,
+          letterSpacing: 1.2,
+        }}
+      >
         LAST NAME *
       </Text>
       <TextInput
@@ -787,7 +872,15 @@ export default function Signup() {
         value={lastName}
       />
 
-      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+      <Text
+        style={{
+          color: "#C8C8C8",
+          fontSize: 12,
+          fontWeight: "700",
+          marginBottom: 10,
+          letterSpacing: 1.2,
+        }}
+      >
         SUFFIX
       </Text>
       <DropDownPicker
@@ -797,7 +890,10 @@ export default function Signup() {
         setValue={(callback) => {
           setSuffix((prev) => callback(prev));
         }}
-        items={["", "Jr.", "Sr.", "II", "III", "IV"].map(v => ({ label: v || "Select Suffix", value: v }))}
+        items={["", "Jr.", "Sr.", "II", "III", "IV"].map((v) => ({
+          label: v || "Select Suffix",
+          value: v,
+        }))}
         listMode="SCROLLVIEW"
         style={{
           backgroundColor: "rgba(255,255,255,0.95)",
@@ -817,7 +913,15 @@ export default function Signup() {
         onOpen={() => setGenderOpen(false)}
       />
 
-      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+      <Text
+        style={{
+          color: "#C8C8C8",
+          fontSize: 12,
+          fontWeight: "700",
+          marginBottom: 10,
+          letterSpacing: 1.2,
+        }}
+      >
         BIRTH DATE *
       </Text>
       <TouchableOpacity
@@ -835,8 +939,16 @@ export default function Signup() {
           justifyContent: "space-between",
         }}
       >
-        <Text style={{ color: birthDate ? "#0a1612" : "#707070", fontSize: 15, fontWeight: "500" }}>
-          {birthDate ? new Date(birthDate).toLocaleDateString() : "Select birth date"}
+        <Text
+          style={{
+            color: birthDate ? "#0a1612" : "#707070",
+            fontSize: 15,
+            fontWeight: "500",
+          }}
+        >
+          {birthDate
+            ? new Date(birthDate).toLocaleDateString()
+            : "Select birth date"}
         </Text>
         <Ionicons name="calendar-outline" size={20} color={primary} />
       </TouchableOpacity>
@@ -855,7 +967,15 @@ export default function Signup() {
         />
       )}
 
-      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+      <Text
+        style={{
+          color: "#C8C8C8",
+          fontSize: 12,
+          fontWeight: "700",
+          marginBottom: 10,
+          letterSpacing: 1.2,
+        }}
+      >
         BAPTISMAL DATE (Optional - Leave blank if not baptised at EECM)
       </Text>
       <TouchableOpacity
@@ -873,8 +993,16 @@ export default function Signup() {
           justifyContent: "space-between",
         }}
       >
-        <Text style={{ color: baptismalDate ? "#0a1612" : "#707070", fontSize: 15, fontWeight: "500" }}>
-          {baptismalDate ? new Date(baptismalDate).toLocaleDateString() : "Select baptismal date"}
+        <Text
+          style={{
+            color: baptismalDate ? "#0a1612" : "#707070",
+            fontSize: 15,
+            fontWeight: "500",
+          }}
+        >
+          {baptismalDate
+            ? new Date(baptismalDate).toLocaleDateString()
+            : "Select baptismal date"}
         </Text>
         <Ionicons name="calendar-outline" size={20} color={primary} />
       </TouchableOpacity>
@@ -893,7 +1021,15 @@ export default function Signup() {
         />
       )}
 
-      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+      <Text
+        style={{
+          color: "#C8C8C8",
+          fontSize: 12,
+          fontWeight: "700",
+          marginBottom: 10,
+          letterSpacing: 1.2,
+        }}
+      >
         BRANCH (STREET-BASED) *
       </Text>
       <DropDownPicker
@@ -910,7 +1046,9 @@ export default function Signup() {
           label: b.name || "Branch name not set",
           value: b.branch_id,
         }))}
-        placeholder={branches.length ? "Select branch you attend" : "Loading branches..."}
+        placeholder={
+          branches.length ? "Select branch you attend" : "Loading branches..."
+        }
         listMode="SCROLLVIEW"
         style={{
           backgroundColor: "rgba(255,255,255,0.95)",
@@ -933,12 +1071,27 @@ export default function Signup() {
         }}
       />
       {branchName ? (
-        <Text style={{ color: "#4f5d4f", fontSize: 12, marginTop: -12, marginBottom: 22 }}>
+        <Text
+          style={{
+            color: "#4f5d4f",
+            fontSize: 12,
+            marginTop: -12,
+            marginBottom: 22,
+          }}
+        >
           Selected branch: {branchName}
         </Text>
       ) : null}
 
-      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+      <Text
+        style={{
+          color: "#C8C8C8",
+          fontSize: 12,
+          fontWeight: "700",
+          marginBottom: 10,
+          letterSpacing: 1.2,
+        }}
+      >
         GENDER *
       </Text>
       <DropDownPicker
@@ -948,7 +1101,7 @@ export default function Signup() {
         setValue={(callback) => {
           setGender((prev) => callback(prev));
         }}
-        items={["Male", "Female"].map(v => ({ label: v, value: v }))}
+        items={["Male", "Female"].map((v) => ({ label: v, value: v }))}
         listMode="SCROLLVIEW"
         style={{
           backgroundColor: "rgba(255,255,255,0.95)",
@@ -968,7 +1121,15 @@ export default function Signup() {
         onOpen={() => setSuffixOpen(false)}
       />
 
-      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+      <Text
+        style={{
+          color: "#C8C8C8",
+          fontSize: 12,
+          fontWeight: "700",
+          marginBottom: 10,
+          letterSpacing: 1.2,
+        }}
+      >
         CONTACT NUMBER *
       </Text>
       <TextInput
@@ -1006,7 +1167,14 @@ export default function Signup() {
           elevation: 6,
         }}
       >
-        <Text style={{ color: "#fff", fontWeight: "800", fontSize: 16, letterSpacing: 1.5 }}>
+        <Text
+          style={{
+            color: "#fff",
+            fontWeight: "800",
+            fontSize: 16,
+            letterSpacing: 1.5,
+          }}
+        >
           CONTINUE
         </Text>
       </TouchableOpacity>
@@ -1022,7 +1190,14 @@ export default function Signup() {
           borderColor: "rgba(255,255,255,0.2)",
         }}
       >
-        <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14, letterSpacing: 1 }}>
+        <Text
+          style={{
+            color: "#fff",
+            fontWeight: "700",
+            fontSize: 14,
+            letterSpacing: 1,
+          }}
+        >
           BACK
         </Text>
       </TouchableOpacity>
@@ -1031,7 +1206,15 @@ export default function Signup() {
 
   const renderAddressStage = () => (
     <Animated.View style={[formAnimStyle, { width: "100%", maxWidth: 420 }]}>
-      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+      <Text
+        style={{
+          color: "#C8C8C8",
+          fontSize: 12,
+          fontWeight: "700",
+          marginBottom: 10,
+          letterSpacing: 1.2,
+        }}
+      >
         STREET ADDRESS *
       </Text>
       <TextInput
@@ -1052,50 +1235,76 @@ export default function Signup() {
         value={street}
       />
 
-      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+      <Text
+        style={{
+          color: "#C8C8C8",
+          fontSize: 12,
+          fontWeight: "700",
+          marginBottom: 10,
+          letterSpacing: 1.2,
+        }}
+      >
         REGION *
       </Text>
-      <View style={{ zIndex: activeAddressDropdown === "region" ? 5000 : 4000, marginBottom: 16 }}>
+      <View
+        style={{
+          zIndex: activeAddressDropdown === "region" ? 5000 : 4000,
+          marginBottom: 16,
+        }}
+      >
         <DropDownPicker
           open={regionOpen}
           setOpen={setRegionOpen}
           value={region}
           setValue={(callback) => {
-        setRegion((prev) => callback(prev));
+            setRegion((prev) => callback(prev));
           }}
           items={regionOptions}
           placeholder="Select Region"
           listMode="SCROLLVIEW"
           style={{
-        backgroundColor: "rgba(255,255,255,0.95)",
-        borderRadius: 14,
-        borderWidth: 2,
-        borderColor: "rgba(11,101,22,0.2)",
-        paddingVertical: 2,
+            backgroundColor: "rgba(255,255,255,0.95)",
+            borderRadius: 14,
+            borderWidth: 2,
+            borderColor: "rgba(11,101,22,0.2)",
+            paddingVertical: 2,
           }}
           textStyle={{ color: "#0a1612", fontSize: 15 }}
           dropDownContainerStyle={{
-        backgroundColor: "rgba(255,255,255,0.95)",
-        borderWidth: 2,
-        borderColor: "rgba(11,101,22,0.2)",
-        borderRadius: 12,
+            backgroundColor: "rgba(255,255,255,0.95)",
+            borderWidth: 2,
+            borderColor: "rgba(11,101,22,0.2)",
+            borderRadius: 12,
           }}
           onOpen={() => {
-        setActiveAddressDropdown("region");
-        setProvinceOpen(false);
-        setCityOpen(false);
-        setBarangayOpen(false);
+            setActiveAddressDropdown("region");
+            setProvinceOpen(false);
+            setCityOpen(false);
+            setBarangayOpen(false);
           }}
           onClose={() => {
-        setActiveAddressDropdown(null);
+            setActiveAddressDropdown(null);
           }}
         />
       </View>
 
-      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+      <Text
+        style={{
+          color: "#C8C8C8",
+          fontSize: 12,
+          fontWeight: "700",
+          marginBottom: 10,
+          letterSpacing: 1.2,
+        }}
+      >
         PROVINCE *
       </Text>
-      <View style={{ zIndex: activeAddressDropdown === "province" ? 5000 : 1000, marginBottom: 16 }}>
+      <View
+        style={{
+          zIndex: activeAddressDropdown === "province" ? 5000 : 1000,
+          marginBottom: 16,
+        }}
+      >
         <DropDownPicker
           open={provinceOpen}
           setOpen={setProvinceOpen}
@@ -1134,10 +1343,23 @@ export default function Signup() {
         />
       </View>
 
-      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+      <Text
+        style={{
+          color: "#C8C8C8",
+          fontSize: 12,
+          fontWeight: "700",
+          marginBottom: 10,
+          letterSpacing: 1.2,
+        }}
+      >
         CITY *
       </Text>
-      <View style={{ zIndex: activeAddressDropdown === "city" ? 5000 : 500, marginBottom: 16 }}>
+      <View
+        style={{
+          zIndex: activeAddressDropdown === "city" ? 5000 : 500,
+          marginBottom: 16,
+        }}
+      >
         <DropDownPicker
           open={cityOpen}
           setOpen={setCityOpen}
@@ -1175,10 +1397,23 @@ export default function Signup() {
         />
       </View>
 
-      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 1.2 }}>
+      <Text
+        style={{
+          color: "#C8C8C8",
+          fontSize: 12,
+          fontWeight: "700",
+          marginBottom: 10,
+          letterSpacing: 1.2,
+        }}
+      >
         BARANGAY
       </Text>
-      <View style={{ zIndex: activeAddressDropdown === "barangay" ? 5000 : 3000, marginBottom: 16 }}>
+      <View
+        style={{
+          zIndex: activeAddressDropdown === "barangay" ? 5000 : 3000,
+          marginBottom: 16,
+        }}
+      >
         <DropDownPicker
           open={barangayOpen}
           setOpen={setBarangayOpen}
@@ -1216,7 +1451,6 @@ export default function Signup() {
         />
       </View>
 
-
       <TouchableOpacity
         onPress={handleAddressSubmit}
         disabled={isLoading}
@@ -1233,7 +1467,14 @@ export default function Signup() {
           elevation: 6,
         }}
       >
-        <Text style={{ color: "#fff", fontWeight: "800", fontSize: 16, letterSpacing: 1.5 }}>
+        <Text
+          style={{
+            color: "#fff",
+            fontWeight: "800",
+            fontSize: 16,
+            letterSpacing: 1.5,
+          }}
+        >
           {isLoading ? "COMPLETING..." : "COMPLETE SIGNUP"}
         </Text>
       </TouchableOpacity>
@@ -1249,7 +1490,14 @@ export default function Signup() {
           borderColor: "rgba(255,255,255,0.2)",
         }}
       >
-        <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14, letterSpacing: 1 }}>
+        <Text
+          style={{
+            color: "#fff",
+            fontWeight: "700",
+            fontSize: 14,
+            letterSpacing: 1,
+          }}
+        >
           BACK
         </Text>
       </TouchableOpacity>
@@ -1257,18 +1505,55 @@ export default function Signup() {
   );
 
   const renderOTPStage = () => (
-    <Animated.View style={[formAnimStyle, { width: "100%", maxWidth: 420, alignItems: "center" }]}>
-      <Text style={{ color: "#FFFFFF", fontSize: 20, fontWeight: "700", marginBottom: 16, textAlign: "center" }}>
+    <Animated.View
+      style={[
+        formAnimStyle,
+        { width: "100%", maxWidth: 420, alignItems: "center" },
+      ]}
+    >
+      <Text
+        style={{
+          color: "#FFFFFF",
+          fontSize: 20,
+          fontWeight: "700",
+          marginBottom: 16,
+          textAlign: "center",
+        }}
+      >
         Email Verification
       </Text>
-      <Text style={{ color: "#B0B0B0", fontSize: 14, marginBottom: 32, textAlign: "center", lineHeight: 20 }}>
-        A 6-digit OTP has been sent to {email}. Please enter it below to continue.
+      <Text
+        style={{
+          color: "#B0B0B0",
+          fontSize: 14,
+          marginBottom: 32,
+          textAlign: "center",
+          lineHeight: 20,
+        }}
+      >
+        A 6-digit OTP has been sent to {email}. Please enter it below to
+        continue.
       </Text>
 
-      <Text style={{ color: "#C8C8C8", fontSize: 12, fontWeight: "700", marginBottom: 20, letterSpacing: 1.2 }}>
+      <Text
+        style={{
+          color: "#C8C8C8",
+          fontSize: 12,
+          fontWeight: "700",
+          marginBottom: 20,
+          letterSpacing: 1.2,
+        }}
+      >
         OTP CODE *
       </Text>
-      <View style={{ flexDirection: "row", justifyContent: "center", marginBottom: 28, gap: 8 }}>
+      <View
+        style={{
+          flexDirection: "row",
+          justifyContent: "center",
+          marginBottom: 28,
+          gap: 8,
+        }}
+      >
         {Array.from({ length: 6 }).map((_, index) => (
           <TextInput
             key={index}
@@ -1332,7 +1617,14 @@ export default function Signup() {
           elevation: 6,
         }}
       >
-        <Text style={{ color: "#fff", fontWeight: "800", fontSize: 16, letterSpacing: 1.5 }}>
+        <Text
+          style={{
+            color: "#fff",
+            fontWeight: "800",
+            fontSize: 16,
+            letterSpacing: 1.5,
+          }}
+        >
           {isLoading ? "VERIFYING..." : "SUBMIT OTP"}
         </Text>
       </TouchableOpacity>
@@ -1351,7 +1643,14 @@ export default function Signup() {
           marginBottom: 8,
         }}
       >
-        <Text style={{ color: secondary, fontWeight: "700", fontSize: 14, letterSpacing: 1 }}>
+        <Text
+          style={{
+            color: secondary,
+            fontWeight: "700",
+            fontSize: 14,
+            letterSpacing: 1,
+          }}
+        >
           RESEND CODE
         </Text>
       </TouchableOpacity>
@@ -1368,7 +1667,14 @@ export default function Signup() {
           borderColor: "rgba(255,255,255,0.2)",
         }}
       >
-        <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14, letterSpacing: 1 }}>
+        <Text
+          style={{
+            color: "#fff",
+            fontWeight: "700",
+            fontSize: 14,
+            letterSpacing: 1,
+          }}
+        >
           BACK
         </Text>
       </TouchableOpacity>
@@ -1376,9 +1682,12 @@ export default function Signup() {
   );
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
-      <ScrollView 
-        contentContainerStyle={{ flexGrow: 1 }} 
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      style={{ flex: 1 }}
+    >
+      <ScrollView
+        contentContainerStyle={{ flexGrow: 1 }}
         keyboardShouldPersistTaps="handled"
       >
         <View
@@ -1394,7 +1703,13 @@ export default function Signup() {
           {/* Background gradient */}
           <Svg width={width} height={height} style={{ position: "absolute" }}>
             <Defs>
-              <LinearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+              <LinearGradient
+                id="bgGradient"
+                x1="0%"
+                y1="0%"
+                x2="100%"
+                y2="100%"
+              >
                 <Stop offset="0%" stopColor={primary} stopOpacity="0.25" />
                 <Stop offset="30%" stopColor="#0a1612" stopOpacity="0.95" />
                 <Stop offset="70%" stopColor="#0a1612" stopOpacity="0.95" />
@@ -1418,14 +1733,41 @@ export default function Signup() {
                   marginBottom: 16,
                 }}
               >
-                <Svg width={100} height={100} viewBox="0 0 200 200" style={{ position: "absolute" }}>
+                <Svg
+                  width={100}
+                  height={100}
+                  viewBox="0 0 200 200"
+                  style={{ position: "absolute" }}
+                >
                   <Defs>
-                    <LinearGradient id="diamondBorderGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.95" />
-                      <Stop offset="25%" stopColor={tertiary} stopOpacity="0.95" />
-                      <Stop offset="50%" stopColor={secondary} stopOpacity="0.95" />
+                    <LinearGradient
+                      id="diamondBorderGrad"
+                      x1="0%"
+                      y1="0%"
+                      x2="100%"
+                      y2="100%"
+                    >
+                      <Stop
+                        offset="0%"
+                        stopColor="#FFFFFF"
+                        stopOpacity="0.95"
+                      />
+                      <Stop
+                        offset="25%"
+                        stopColor={tertiary}
+                        stopOpacity="0.95"
+                      />
+                      <Stop
+                        offset="50%"
+                        stopColor={secondary}
+                        stopOpacity="0.95"
+                      />
                       <Stop offset="75%" stopColor={primary} stopOpacity="1" />
-                      <Stop offset="100%" stopColor="#FFFFFF" stopOpacity="0.8" />
+                      <Stop
+                        offset="100%"
+                        stopColor="#FFFFFF"
+                        stopOpacity="0.8"
+                      />
                     </LinearGradient>
                   </Defs>
                   <Path
@@ -1480,7 +1822,13 @@ export default function Signup() {
                 fontWeight: "500",
               }}
             >
-              {stage === "auth" ? "CREATE ACCOUNT" : stage === "credentials" ? "YOUR DETAILS" : stage === "address" ? "ADDRESS DETAILS" : "VERIFY EMAIL"}
+              {stage === "auth"
+                ? "CREATE ACCOUNT"
+                : stage === "credentials"
+                  ? "YOUR DETAILS"
+                  : stage === "address"
+                    ? "ADDRESS DETAILS"
+                    : "VERIFY EMAIL"}
             </Text>
           </View>
 

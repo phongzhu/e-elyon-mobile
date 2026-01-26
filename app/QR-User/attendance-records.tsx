@@ -3,60 +3,305 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { router } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  Image,
-  Modal,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    Image,
+    Modal,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { supabase } from "../../src/lib/supabaseClient";
 import QRNavbar from "./qr-navbar";
 
-const branches = ["San Roque", "Bustos", "Talacsan", "Vizal Pampanga", "Cavite"];
-const services = ["All", "Sunday Service", "Bible Study", "Prayer Meeting", "Youth Service", "Midweek Service"];
+const branches = [
+  "San Roque",
+  "Bustos",
+  "Talacsan",
+  "Vizal Pampanga",
+  "Cavite",
+];
+const services = [
+  "All",
+  "Sunday Service",
+  "Bible Study",
+  "Prayer Meeting",
+  "Youth Service",
+  "Midweek Service",
+];
 const timePeriods = ["Daily", "Weekly", "Monthly"];
 
 // Dummy data for Daily view (Today)
 const dailyAttendance = [
-  { id: 1, name: "Ethan Carter", time: "10:30 AM", date: "Today", branch: "San Roque", service: "Sunday Service", avatar: "https://i.pravatar.cc/80?img=12" },
-  { id: 2, name: "Olivia Bennett", time: "10:35 AM", date: "Today", branch: "Bustos", service: "Sunday Service", avatar: "https://i.pravatar.cc/80?img=32" },
-  { id: 3, name: "Noah Thompson", time: "10:40 AM", date: "Today", branch: "San Roque", service: "Sunday Service", avatar: "https://i.pravatar.cc/80?img=45" },
-  { id: 4, name: "Ava Collins", time: "11:05 AM", date: "Today", branch: "Talacsan", service: "Sunday Service", avatar: "https://i.pravatar.cc/80?img=24" },
-  { id: 5, name: "Liam Foster", time: "11:15 AM", date: "Today", branch: "San Roque", service: "Sunday Service", avatar: "https://i.pravatar.cc/80?img=18" },
-  { id: 6, name: "Sophia Martinez", time: "2:20 PM", date: "Today", branch: "Bustos", service: "Bible Study", avatar: "https://i.pravatar.cc/80?img=28" },
-  { id: 7, name: "James Wilson", time: "3:45 PM", date: "Today", branch: "Vizal Pampanga", service: "Prayer Meeting", avatar: "https://i.pravatar.cc/80?img=51" },
+  {
+    id: 1,
+    name: "Ethan Carter",
+    time: "10:30 AM",
+    date: "Today",
+    branch: "San Roque",
+    service: "Sunday Service",
+    avatar: "https://i.pravatar.cc/80?img=12",
+  },
+  {
+    id: 2,
+    name: "Olivia Bennett",
+    time: "10:35 AM",
+    date: "Today",
+    branch: "Bustos",
+    service: "Sunday Service",
+    avatar: "https://i.pravatar.cc/80?img=32",
+  },
+  {
+    id: 3,
+    name: "Noah Thompson",
+    time: "10:40 AM",
+    date: "Today",
+    branch: "San Roque",
+    service: "Sunday Service",
+    avatar: "https://i.pravatar.cc/80?img=45",
+  },
+  {
+    id: 4,
+    name: "Ava Collins",
+    time: "11:05 AM",
+    date: "Today",
+    branch: "Talacsan",
+    service: "Sunday Service",
+    avatar: "https://i.pravatar.cc/80?img=24",
+  },
+  {
+    id: 5,
+    name: "Liam Foster",
+    time: "11:15 AM",
+    date: "Today",
+    branch: "San Roque",
+    service: "Sunday Service",
+    avatar: "https://i.pravatar.cc/80?img=18",
+  },
+  {
+    id: 6,
+    name: "Sophia Martinez",
+    time: "2:20 PM",
+    date: "Today",
+    branch: "Bustos",
+    service: "Bible Study",
+    avatar: "https://i.pravatar.cc/80?img=28",
+  },
+  {
+    id: 7,
+    name: "James Wilson",
+    time: "3:45 PM",
+    date: "Today",
+    branch: "Vizal Pampanga",
+    service: "Prayer Meeting",
+    avatar: "https://i.pravatar.cc/80?img=51",
+  },
 ];
 
 // Dummy data for Weekly view (Last 7 days)
 const weeklyAttendance = [
-  { id: 11, name: "Emma Davis", time: "9:15 AM", date: "Mon, Dec 16", branch: "San Roque", service: "Sunday Service", avatar: "https://i.pravatar.cc/80?img=5" },
-  { id: 12, name: "Michael Brown", time: "9:30 AM", date: "Mon, Dec 16", branch: "Cavite", service: "Sunday Service", avatar: "https://i.pravatar.cc/80?img=13" },
-  { id: 13, name: "Isabella Garcia", time: "10:00 AM", date: "Sun, Dec 15", branch: "Bustos", service: "Sunday Service", avatar: "https://i.pravatar.cc/80?img=44" },
-  { id: 14, name: "William Johnson", time: "10:20 AM", date: "Sun, Dec 15", branch: "Talacsan", service: "Sunday Service", avatar: "https://i.pravatar.cc/80?img=33" },
-  { id: 15, name: "Charlotte Lee", time: "6:00 PM", date: "Wed, Dec 11", branch: "San Roque", service: "Midweek Service", avatar: "https://i.pravatar.cc/80?img=22" },
-  { id: 16, name: "Benjamin Taylor", time: "6:15 PM", date: "Wed, Dec 11", branch: "Bustos", service: "Midweek Service", avatar: "https://i.pravatar.cc/80?img=14" },
-  { id: 17, name: "Amelia Anderson", time: "7:00 PM", date: "Tue, Dec 10", branch: "Vizal Pampanga", service: "Bible Study", avatar: "https://i.pravatar.cc/80?img=26" },
-  { id: 18, name: "Lucas White", time: "7:30 PM", date: "Tue, Dec 10", branch: "Cavite", service: "Prayer Meeting", avatar: "https://i.pravatar.cc/80?img=60" },
-  { id: 19, name: "Mia Harris", time: "5:00 PM", date: "Sat, Dec 14", branch: "San Roque", service: "Youth Service", avatar: "https://i.pravatar.cc/80?img=47" },
-  { id: 20, name: "Alexander Clark", time: "5:30 PM", date: "Sat, Dec 14", branch: "Talacsan", service: "Youth Service", avatar: "https://i.pravatar.cc/80?img=52" },
+  {
+    id: 11,
+    name: "Emma Davis",
+    time: "9:15 AM",
+    date: "Mon, Dec 16",
+    branch: "San Roque",
+    service: "Sunday Service",
+    avatar: "https://i.pravatar.cc/80?img=5",
+  },
+  {
+    id: 12,
+    name: "Michael Brown",
+    time: "9:30 AM",
+    date: "Mon, Dec 16",
+    branch: "Cavite",
+    service: "Sunday Service",
+    avatar: "https://i.pravatar.cc/80?img=13",
+  },
+  {
+    id: 13,
+    name: "Isabella Garcia",
+    time: "10:00 AM",
+    date: "Sun, Dec 15",
+    branch: "Bustos",
+    service: "Sunday Service",
+    avatar: "https://i.pravatar.cc/80?img=44",
+  },
+  {
+    id: 14,
+    name: "William Johnson",
+    time: "10:20 AM",
+    date: "Sun, Dec 15",
+    branch: "Talacsan",
+    service: "Sunday Service",
+    avatar: "https://i.pravatar.cc/80?img=33",
+  },
+  {
+    id: 15,
+    name: "Charlotte Lee",
+    time: "6:00 PM",
+    date: "Wed, Dec 11",
+    branch: "San Roque",
+    service: "Midweek Service",
+    avatar: "https://i.pravatar.cc/80?img=22",
+  },
+  {
+    id: 16,
+    name: "Benjamin Taylor",
+    time: "6:15 PM",
+    date: "Wed, Dec 11",
+    branch: "Bustos",
+    service: "Midweek Service",
+    avatar: "https://i.pravatar.cc/80?img=14",
+  },
+  {
+    id: 17,
+    name: "Amelia Anderson",
+    time: "7:00 PM",
+    date: "Tue, Dec 10",
+    branch: "Vizal Pampanga",
+    service: "Bible Study",
+    avatar: "https://i.pravatar.cc/80?img=26",
+  },
+  {
+    id: 18,
+    name: "Lucas White",
+    time: "7:30 PM",
+    date: "Tue, Dec 10",
+    branch: "Cavite",
+    service: "Prayer Meeting",
+    avatar: "https://i.pravatar.cc/80?img=60",
+  },
+  {
+    id: 19,
+    name: "Mia Harris",
+    time: "5:00 PM",
+    date: "Sat, Dec 14",
+    branch: "San Roque",
+    service: "Youth Service",
+    avatar: "https://i.pravatar.cc/80?img=47",
+  },
+  {
+    id: 20,
+    name: "Alexander Clark",
+    time: "5:30 PM",
+    date: "Sat, Dec 14",
+    branch: "Talacsan",
+    service: "Youth Service",
+    avatar: "https://i.pravatar.cc/80?img=52",
+  },
 ];
 
 // Dummy data for Monthly view (December)
 const monthlyAttendance = [
-  { id: 31, name: "Harper Lewis", time: "9:00 AM", date: "Dec 1", branch: "San Roque", service: "Sunday Service", avatar: "https://i.pravatar.cc/80?img=9" },
-  { id: 32, name: "Evelyn Walker", time: "9:30 AM", date: "Dec 1", branch: "Bustos", service: "Sunday Service", avatar: "https://i.pravatar.cc/80?img=20" },
-  { id: 33, name: "Sebastian Hall", time: "10:00 AM", date: "Dec 8", branch: "Vizal Pampanga", service: "Sunday Service", avatar: "https://i.pravatar.cc/80?img=15" },
-  { id: 34, name: "Abigail Young", time: "10:30 AM", date: "Dec 8", branch: "Cavite", service: "Sunday Service", avatar: "https://i.pravatar.cc/80?img=48" },
-  { id: 35, name: "Jackson Allen", time: "6:00 PM", date: "Dec 4", branch: "San Roque", service: "Midweek Service", avatar: "https://i.pravatar.cc/80?img=11" },
-  { id: 36, name: "Ella King", time: "6:30 PM", date: "Dec 4", branch: "Talacsan", service: "Midweek Service", avatar: "https://i.pravatar.cc/80?img=25" },
-  { id: 37, name: "Henry Wright", time: "7:00 PM", date: "Dec 3", branch: "Bustos", service: "Bible Study", avatar: "https://i.pravatar.cc/80?img=53" },
-  { id: 38, name: "Scarlett Lopez", time: "7:15 PM", date: "Dec 3", branch: "San Roque", service: "Prayer Meeting", avatar: "https://i.pravatar.cc/80?img=41" },
-  { id: 39, name: "Daniel Hill", time: "4:30 PM", date: "Dec 7", branch: "Vizal Pampanga", service: "Youth Service", avatar: "https://i.pravatar.cc/80?img=31" },
-  { id: 40, name: "Grace Scott", time: "5:00 PM", date: "Dec 7", branch: "Cavite", service: "Youth Service", avatar: "https://i.pravatar.cc/80?img=19" },
-  { id: 41, name: "Matthew Green", time: "10:15 AM", date: "Dec 15", branch: "Bustos", service: "Sunday Service", avatar: "https://i.pravatar.cc/80?img=54" },
-  { id: 42, name: "Chloe Adams", time: "10:45 AM", date: "Dec 15", branch: "San Roque", service: "Sunday Service", avatar: "https://i.pravatar.cc/80?img=27" },
+  {
+    id: 31,
+    name: "Harper Lewis",
+    time: "9:00 AM",
+    date: "Dec 1",
+    branch: "San Roque",
+    service: "Sunday Service",
+    avatar: "https://i.pravatar.cc/80?img=9",
+  },
+  {
+    id: 32,
+    name: "Evelyn Walker",
+    time: "9:30 AM",
+    date: "Dec 1",
+    branch: "Bustos",
+    service: "Sunday Service",
+    avatar: "https://i.pravatar.cc/80?img=20",
+  },
+  {
+    id: 33,
+    name: "Sebastian Hall",
+    time: "10:00 AM",
+    date: "Dec 8",
+    branch: "Vizal Pampanga",
+    service: "Sunday Service",
+    avatar: "https://i.pravatar.cc/80?img=15",
+  },
+  {
+    id: 34,
+    name: "Abigail Young",
+    time: "10:30 AM",
+    date: "Dec 8",
+    branch: "Cavite",
+    service: "Sunday Service",
+    avatar: "https://i.pravatar.cc/80?img=48",
+  },
+  {
+    id: 35,
+    name: "Jackson Allen",
+    time: "6:00 PM",
+    date: "Dec 4",
+    branch: "San Roque",
+    service: "Midweek Service",
+    avatar: "https://i.pravatar.cc/80?img=11",
+  },
+  {
+    id: 36,
+    name: "Ella King",
+    time: "6:30 PM",
+    date: "Dec 4",
+    branch: "Talacsan",
+    service: "Midweek Service",
+    avatar: "https://i.pravatar.cc/80?img=25",
+  },
+  {
+    id: 37,
+    name: "Henry Wright",
+    time: "7:00 PM",
+    date: "Dec 3",
+    branch: "Bustos",
+    service: "Bible Study",
+    avatar: "https://i.pravatar.cc/80?img=53",
+  },
+  {
+    id: 38,
+    name: "Scarlett Lopez",
+    time: "7:15 PM",
+    date: "Dec 3",
+    branch: "San Roque",
+    service: "Prayer Meeting",
+    avatar: "https://i.pravatar.cc/80?img=41",
+  },
+  {
+    id: 39,
+    name: "Daniel Hill",
+    time: "4:30 PM",
+    date: "Dec 7",
+    branch: "Vizal Pampanga",
+    service: "Youth Service",
+    avatar: "https://i.pravatar.cc/80?img=31",
+  },
+  {
+    id: 40,
+    name: "Grace Scott",
+    time: "5:00 PM",
+    date: "Dec 7",
+    branch: "Cavite",
+    service: "Youth Service",
+    avatar: "https://i.pravatar.cc/80?img=19",
+  },
+  {
+    id: 41,
+    name: "Matthew Green",
+    time: "10:15 AM",
+    date: "Dec 15",
+    branch: "Bustos",
+    service: "Sunday Service",
+    avatar: "https://i.pravatar.cc/80?img=54",
+  },
+  {
+    id: 42,
+    name: "Chloe Adams",
+    time: "10:45 AM",
+    date: "Dec 15",
+    branch: "San Roque",
+    service: "Sunday Service",
+    avatar: "https://i.pravatar.cc/80?img=27",
+  },
 ];
 
 export default function AttendanceRecords() {
@@ -73,7 +318,10 @@ export default function AttendanceRecords() {
 
   useEffect(() => {
     (async () => {
-      const { data, error } = await supabase.from("ui_settings").select("*").single();
+      const { data, error } = await supabase
+        .from("ui_settings")
+        .select("*")
+        .single();
       if (!error) {
         setBranding(data);
       }
@@ -96,8 +344,10 @@ export default function AttendanceRecords() {
 
   const filteredRecords = useMemo(() => {
     return currentRecords.filter((record) => {
-      const branchMatch = selectedBranch === "All" || record.branch === selectedBranch;
-      const serviceMatch = selectedService === "All" || record.service === selectedService;
+      const branchMatch =
+        selectedBranch === "All" || record.branch === selectedBranch;
+      const serviceMatch =
+        selectedService === "All" || record.service === selectedService;
       return branchMatch && serviceMatch;
     });
   }, [currentRecords, selectedBranch, selectedService]);
@@ -105,26 +355,32 @@ export default function AttendanceRecords() {
   // Analytics calculations
   const analytics = useMemo(() => {
     const totalAttendees = filteredRecords.length;
-    const uniqueBranches = [...new Set(filteredRecords.map(r => r.branch))].length;
-    
+    const uniqueBranches = [...new Set(filteredRecords.map((r) => r.branch))]
+      .length;
+
     // Count by service
     const serviceCount: { [key: string]: number } = {};
-    filteredRecords.forEach(record => {
+    filteredRecords.forEach((record) => {
       serviceCount[record.service] = (serviceCount[record.service] || 0) + 1;
     });
-    const topService = Object.entries(serviceCount).sort((a, b) => b[1] - a[1])[0];
-    
+    const topService = Object.entries(serviceCount).sort(
+      (a, b) => b[1] - a[1],
+    )[0];
+
     // Count by branch
     const branchCount: { [key: string]: number } = {};
-    filteredRecords.forEach(record => {
+    filteredRecords.forEach((record) => {
       branchCount[record.branch] = (branchCount[record.branch] || 0) + 1;
     });
-    const topBranch = Object.entries(branchCount).sort((a, b) => b[1] - a[1])[0];
+    const topBranch = Object.entries(branchCount).sort(
+      (a, b) => b[1] - a[1],
+    )[0];
 
     // Calculate average per day based on period
     let avgPerDay = totalAttendees;
     if (selectedPeriod === "Weekly") avgPerDay = Math.round(totalAttendees / 7);
-    if (selectedPeriod === "Monthly") avgPerDay = Math.round(totalAttendees / 30);
+    if (selectedPeriod === "Monthly")
+      avgPerDay = Math.round(totalAttendees / 30);
 
     return {
       totalAttendees,
@@ -135,10 +391,15 @@ export default function AttendanceRecords() {
     };
   }, [filteredRecords, selectedPeriod]);
 
-  const handleBarCodeScanned = ({ type, data }: { type: string; data: string }) => {
+  const handleBarCodeScanned = ({
+    type,
+    data,
+  }: {
+    type: string;
+    data: string;
+  }) => {
     setScanned(true);
     setShowScanner(false);
-    console.log(`QR Code scanned! Type: ${type}, Data: ${data}`);
   };
 
   const openScanner = async () => {
@@ -152,9 +413,15 @@ export default function AttendanceRecords() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "#f8faf9" }}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.headerRow}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.backButton}
+          >
             <Ionicons name="arrow-back" size={22} color="#111" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Scan Attendance</Text>
@@ -186,10 +453,18 @@ export default function AttendanceRecords() {
                   onPress={() => setSelectedPeriod(period)}
                   style={[
                     styles.periodButton,
-                    active && { backgroundColor: primary, borderColor: primary }
+                    active && {
+                      backgroundColor: primary,
+                      borderColor: primary,
+                    },
                   ]}
                 >
-                  <Text style={[styles.periodText, active && { color: "#fff", fontWeight: "700" }]}>
+                  <Text
+                    style={[
+                      styles.periodText,
+                      active && { color: "#fff", fontWeight: "700" },
+                    ]}
+                  >
                     {period}
                   </Text>
                 </TouchableOpacity>
@@ -202,29 +477,53 @@ export default function AttendanceRecords() {
         <View style={styles.analyticsSection}>
           <Text style={styles.sectionTitle}>Analytics</Text>
           <View style={styles.analyticsGrid}>
-            <View style={[styles.analyticsCard, { backgroundColor: `${secondary}15` }]}>
+            <View
+              style={[
+                styles.analyticsCard,
+                { backgroundColor: `${secondary}15` },
+              ]}
+            >
               <Ionicons name="people" size={24} color={secondary} />
-              <Text style={styles.analyticsValue}>{analytics.totalAttendees}</Text>
+              <Text style={styles.analyticsValue}>
+                {analytics.totalAttendees}
+              </Text>
               <Text style={styles.analyticsLabel}>Total Attendees</Text>
             </View>
-            <View style={[styles.analyticsCard, { backgroundColor: `${primary}15` }]}>
+            <View
+              style={[
+                styles.analyticsCard,
+                { backgroundColor: `${primary}15` },
+              ]}
+            >
               <Ionicons name="trending-up" size={24} color={primary} />
               <Text style={styles.analyticsValue}>{analytics.avgPerDay}</Text>
               <Text style={styles.analyticsLabel}>Avg per Day</Text>
             </View>
           </View>
           <View style={styles.analyticsGrid}>
-            <View style={[styles.analyticsCard, { backgroundColor: "#ffeaa7" }]}>
+            <View
+              style={[styles.analyticsCard, { backgroundColor: "#ffeaa7" }]}
+            >
               <Ionicons name="calendar" size={24} color="#fdcb6e" />
-              <Text style={styles.analyticsValue} numberOfLines={1} adjustsFontSizeToFit>
-                {analytics.topService.split(' ')[0]}
+              <Text
+                style={styles.analyticsValue}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+              >
+                {analytics.topService.split(" ")[0]}
               </Text>
               <Text style={styles.analyticsLabel}>Top Event</Text>
             </View>
-            <View style={[styles.analyticsCard, { backgroundColor: "#dfe6e9" }]}>
+            <View
+              style={[styles.analyticsCard, { backgroundColor: "#dfe6e9" }]}
+            >
               <Ionicons name="location" size={24} color="#636e72" />
-              <Text style={styles.analyticsValue} numberOfLines={1} adjustsFontSizeToFit>
-                {analytics.topBranch.split(' ')[0]}
+              <Text
+                style={styles.analyticsValue}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+              >
+                {analytics.topBranch.split(" ")[0]}
               </Text>
               <Text style={styles.analyticsLabel}>Top Branch</Text>
             </View>
@@ -233,32 +532,62 @@ export default function AttendanceRecords() {
 
         <View style={styles.filtersBlock}>
           <Text style={styles.sectionTitle}>Filters</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.filterRow}
+          >
             {branches.map((branch) => {
               const active = branch === selectedBranch;
               return (
                 <TouchableOpacity
                   key={branch}
                   onPress={() => setSelectedBranch(branch)}
-                  style={[styles.filterChip, active && { backgroundColor: `${secondary}20`, borderColor: secondary }]}
+                  style={[
+                    styles.filterChip,
+                    active && {
+                      backgroundColor: `${secondary}20`,
+                      borderColor: secondary,
+                    },
+                  ]}
                 >
-                  <Text style={[styles.filterText, active && { color: secondary, fontWeight: "700" }]}>
+                  <Text
+                    style={[
+                      styles.filterText,
+                      active && { color: secondary, fontWeight: "700" },
+                    ]}
+                  >
                     {branch}
                   </Text>
                 </TouchableOpacity>
               );
             })}
           </ScrollView>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.filterRow}
+          >
             {services.map((service) => {
               const active = service === selectedService;
               return (
                 <TouchableOpacity
                   key={service}
                   onPress={() => setSelectedService(service)}
-                  style={[styles.filterChip, active && { backgroundColor: `${secondary}20`, borderColor: secondary }]}
+                  style={[
+                    styles.filterChip,
+                    active && {
+                      backgroundColor: `${secondary}20`,
+                      borderColor: secondary,
+                    },
+                  ]}
                 >
-                  <Text style={[styles.filterText, active && { color: secondary, fontWeight: "700" }]}>
+                  <Text
+                    style={[
+                      styles.filterText,
+                      active && { color: secondary, fontWeight: "700" },
+                    ]}
+                  >
                     {service}
                   </Text>
                 </TouchableOpacity>
@@ -267,7 +596,9 @@ export default function AttendanceRecords() {
           </ScrollView>
         </View>
 
-        <Text style={[styles.sectionTitle, { marginTop: 8 }]}>Attendance Records ({selectedPeriod})</Text>
+        <Text style={[styles.sectionTitle, { marginTop: 8 }]}>
+          Attendance Records ({selectedPeriod})
+        </Text>
         {filteredRecords.length > 0 ? (
           filteredRecords.map((record) => (
             <View key={record.id} style={styles.recordRow}>
@@ -276,8 +607,12 @@ export default function AttendanceRecords() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.name}>{record.name}</Text>
-                <Text style={styles.time}>{record.time} • {record.date}</Text>
-                <Text style={styles.meta}>{record.branch} • {record.service}</Text>
+                <Text style={styles.time}>
+                  {record.time} • {record.date}
+                </Text>
+                <Text style={styles.meta}>
+                  {record.branch} • {record.service}
+                </Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color="#999" />
             </View>
@@ -309,18 +644,27 @@ export default function AttendanceRecords() {
               >
                 <View style={styles.scannerOverlay}>
                   <View style={styles.scannerFrame} />
-                  <Text style={styles.scannerInstruction}>Align the QR code within the frame</Text>
+                  <Text style={styles.scannerInstruction}>
+                    Align the QR code within the frame
+                  </Text>
                 </View>
               </CameraView>
             ) : (
               <View style={styles.permissionContainer}>
                 <Ionicons name="camera-outline" size={64} color="#999" />
-                <Text style={styles.permissionText}>Camera permission required</Text>
+                <Text style={styles.permissionText}>
+                  Camera permission required
+                </Text>
                 <TouchableOpacity
-                  style={[styles.permissionButton, { backgroundColor: primary }]}
+                  style={[
+                    styles.permissionButton,
+                    { backgroundColor: primary },
+                  ]}
                   onPress={requestPermission}
                 >
-                  <Text style={styles.permissionButtonText}>Grant Permission</Text>
+                  <Text style={styles.permissionButtonText}>
+                    Grant Permission
+                  </Text>
                 </TouchableOpacity>
               </View>
             )}

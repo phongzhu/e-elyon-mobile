@@ -3,16 +3,25 @@ import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
 import { Dimensions, Text, View } from "react-native";
 import Animated, {
-  Easing,
-  interpolate,
-  useAnimatedStyle,
-  useSharedValue,
-  withDelay,
-  withRepeat,
-  withSequence,
-  withTiming,
+    Easing,
+    interpolate,
+    useAnimatedStyle,
+    useSharedValue,
+    withDelay,
+    withRepeat,
+    withSequence,
+    withTiming,
 } from "react-native-reanimated";
-import Svg, { Circle, ClipPath, Defs, Image, LinearGradient, Polygon, Rect, Stop } from "react-native-svg";
+import Svg, {
+    Circle,
+    ClipPath,
+    Defs,
+    Image,
+    LinearGradient,
+    Polygon,
+    Rect,
+    Stop,
+} from "react-native-svg";
 import { supabase } from "../src/lib/supabaseClient";
 
 const { width, height } = Dimensions.get("window");
@@ -23,10 +32,12 @@ export default function Index() {
   // Fetch UI branding
   useEffect(() => {
     (async () => {
-      const { data, error } = await supabase.from("ui_settings").select("*").single();
+      const { data, error } = await supabase
+        .from("ui_settings")
+        .select("*")
+        .single();
       if (error) console.error("❌ Branding fetch error:", error);
       else {
-        console.log("✅ Branding loaded:", data);
         setBranding(data);
       }
     })();
@@ -40,7 +51,8 @@ export default function Index() {
     ? `${branding.logo_icon.startsWith("http") ? branding.logo_icon : `${supabase.storage.from("logos").getPublicUrl(branding.logo_icon).data.publicUrl}`}`
     : null;
   const systemName = branding?.system_name || "E-ELYON";
-  const description = branding?.description || "Connecting Faith • Empowering Service";
+  const description =
+    branding?.description || "Connecting Faith • Empowering Service";
 
   // Core animations
   const logoScale = useSharedValue(0);
@@ -58,7 +70,6 @@ export default function Index() {
     const connect = async () => {
       const { error } = await supabase.from("branches").select("*").limit(1);
       if (error) console.error("❌ Supabase error:", error);
-      else console.log("✅ Supabase connected!");
     };
     connect();
 
@@ -66,11 +77,14 @@ export default function Index() {
     logoScale.value = withDelay(
       400,
       withSequence(
-        withTiming(1.2, { duration: 700, easing: Easing.out(Easing.back(1.8)) }),
-        withTiming(1, { duration: 300, easing: Easing.inOut(Easing.ease) })
-      )
+        withTiming(1.2, {
+          duration: 700,
+          easing: Easing.out(Easing.back(1.8)),
+        }),
+        withTiming(1, { duration: 300, easing: Easing.inOut(Easing.ease) }),
+      ),
     );
-    
+
     logoOpacity.value = withDelay(400, withTiming(1, { duration: 700 }));
 
     // Subtle glow pulse
@@ -79,11 +93,11 @@ export default function Index() {
       withRepeat(
         withSequence(
           withTiming(1, { duration: 2000, easing: Easing.inOut(Easing.sin) }),
-          withTiming(0.5, { duration: 2000, easing: Easing.inOut(Easing.sin) })
+          withTiming(0.5, { duration: 2000, easing: Easing.inOut(Easing.sin) }),
         ),
         -1,
-        false
-      )
+        false,
+      ),
     );
 
     // Subtle rings
@@ -92,11 +106,11 @@ export default function Index() {
       withRepeat(
         withSequence(
           withTiming(2.5, { duration: 2500, easing: Easing.out(Easing.cubic) }),
-          withTiming(0.5, { duration: 0 })
+          withTiming(0.5, { duration: 0 }),
         ),
         -1,
-        false
-      )
+        false,
+      ),
     );
 
     ringScale2.value = withDelay(
@@ -104,11 +118,11 @@ export default function Index() {
       withRepeat(
         withSequence(
           withTiming(2.5, { duration: 2500, easing: Easing.out(Easing.cubic) }),
-          withTiming(0.5, { duration: 0 })
+          withTiming(0.5, { duration: 0 }),
         ),
         -1,
-        false
-      )
+        false,
+      ),
     );
 
     // Floating particles
@@ -117,11 +131,11 @@ export default function Index() {
       withRepeat(
         withSequence(
           withTiming(1, { duration: 3000, easing: Easing.inOut(Easing.sin) }),
-          withTiming(0.4, { duration: 3000, easing: Easing.inOut(Easing.sin) })
+          withTiming(0.4, { duration: 3000, easing: Easing.inOut(Easing.sin) }),
         ),
         -1,
-        false
-      )
+        false,
+      ),
     );
 
     particlesY.value = withDelay(
@@ -129,23 +143,26 @@ export default function Index() {
       withRepeat(
         withSequence(
           withTiming(-30, { duration: 3500, easing: Easing.inOut(Easing.sin) }),
-          withTiming(50, { duration: 3500, easing: Easing.inOut(Easing.sin) })
+          withTiming(50, { duration: 3500, easing: Easing.inOut(Easing.sin) }),
         ),
         -1,
-        false
-      )
+        false,
+      ),
     );
 
     // Text animation
     textOpacity.value = withDelay(1200, withTiming(1, { duration: 800 }));
     textTranslateY.value = withDelay(
       1200,
-      withTiming(0, { duration: 800, easing: Easing.out(Easing.cubic) })
+      withTiming(0, { duration: 800, easing: Easing.out(Easing.cubic) }),
     );
 
     // Fade out before navigation
     const fadeTimer = setTimeout(() => {
-      fadeOut.value = withTiming(0, { duration: 600, easing: Easing.in(Easing.ease) });
+      fadeOut.value = withTiming(0, {
+        duration: 600,
+        easing: Easing.in(Easing.ease),
+      });
     }, 5400);
 
     const timer = setTimeout(() => router.replace("/login"), 6000);
@@ -217,13 +234,27 @@ export default function Index() {
       {/* Subtle expanding rings */}
       <Animated.View style={[ring1Style, { position: "absolute" }]}>
         <Svg width={280} height={280}>
-          <Circle cx={140} cy={140} r={100} stroke={primary} strokeWidth="2" fill="none" />
+          <Circle
+            cx={140}
+            cy={140}
+            r={100}
+            stroke={primary}
+            strokeWidth="2"
+            fill="none"
+          />
         </Svg>
       </Animated.View>
 
       <Animated.View style={[ring2Style, { position: "absolute" }]}>
         <Svg width={280} height={280}>
-          <Circle cx={140} cy={140} r={100} stroke={secondary} strokeWidth="2" fill="none" />
+          <Circle
+            cx={140}
+            cy={140}
+            r={100}
+            stroke={secondary}
+            strokeWidth="2"
+            fill="none"
+          />
         </Svg>
       </Animated.View>
 
@@ -231,7 +262,13 @@ export default function Index() {
       <Animated.View style={[glowStyle, { position: "absolute" }]}>
         <Svg width={300} height={300}>
           <Defs>
-            <LinearGradient id="glowGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+            <LinearGradient
+              id="glowGradient"
+              x1="0%"
+              y1="0%"
+              x2="100%"
+              y2="100%"
+            >
               <Stop offset="0%" stopColor={primary} stopOpacity="0.3" />
               <Stop offset="50%" stopColor={secondary} stopOpacity="0.25" />
               <Stop offset="100%" stopColor={tertiary} stopOpacity="0.2" />
@@ -245,32 +282,110 @@ export default function Index() {
       <Animated.View style={[particleAnimStyle, { position: "absolute" }]}>
         <Svg width={width} height={height}>
           {/* Left side particles */}
-          <Circle cx={width * 0.15} cy={height * 0.3} r={3} fill={primary} opacity={0.7} />
-          <Circle cx={width * 0.12} cy={height * 0.5} r={2} fill={secondary} opacity={0.6} />
-          <Circle cx={width * 0.18} cy={height * 0.7} r={2.5} fill={tertiary} opacity={0.65} />
-          
+          <Circle
+            cx={width * 0.15}
+            cy={height * 0.3}
+            r={3}
+            fill={primary}
+            opacity={0.7}
+          />
+          <Circle
+            cx={width * 0.12}
+            cy={height * 0.5}
+            r={2}
+            fill={secondary}
+            opacity={0.6}
+          />
+          <Circle
+            cx={width * 0.18}
+            cy={height * 0.7}
+            r={2.5}
+            fill={tertiary}
+            opacity={0.65}
+          />
+
           {/* Right side particles */}
-          <Circle cx={width * 0.85} cy={height * 0.35} r={3} fill={secondary} opacity={0.7} />
-          <Circle cx={width * 0.88} cy={height * 0.55} r={2} fill={primary} opacity={0.6} />
-          <Circle cx={width * 0.82} cy={height * 0.75} r={2.5} fill={tertiary} opacity={0.65} />
-          
+          <Circle
+            cx={width * 0.85}
+            cy={height * 0.35}
+            r={3}
+            fill={secondary}
+            opacity={0.7}
+          />
+          <Circle
+            cx={width * 0.88}
+            cy={height * 0.55}
+            r={2}
+            fill={primary}
+            opacity={0.6}
+          />
+          <Circle
+            cx={width * 0.82}
+            cy={height * 0.75}
+            r={2.5}
+            fill={tertiary}
+            opacity={0.65}
+          />
+
           {/* Top particles */}
-          <Circle cx={width * 0.4} cy={height * 0.15} r={2} fill="#FFFFFF" opacity={0.5} />
-          <Circle cx={width * 0.6} cy={height * 0.18} r={2} fill="#FFFFFF" opacity={0.5} />
-          
+          <Circle
+            cx={width * 0.4}
+            cy={height * 0.15}
+            r={2}
+            fill="#FFFFFF"
+            opacity={0.5}
+          />
+          <Circle
+            cx={width * 0.6}
+            cy={height * 0.18}
+            r={2}
+            fill="#FFFFFF"
+            opacity={0.5}
+          />
+
           {/* Bottom particles */}
-          <Circle cx={width * 0.35} cy={height * 0.85} r={2} fill={primary} opacity={0.6} />
-          <Circle cx={width * 0.65} cy={height * 0.88} r={2} fill={secondary} opacity={0.6} />
+          <Circle
+            cx={width * 0.35}
+            cy={height * 0.85}
+            r={2}
+            fill={primary}
+            opacity={0.6}
+          />
+          <Circle
+            cx={width * 0.65}
+            cy={height * 0.88}
+            r={2}
+            fill={secondary}
+            opacity={0.6}
+          />
         </Svg>
       </Animated.View>
 
       {/* Logo with hexagon shape */}
       <Animated.View style={[logoAnimStyle]}>
-        <View style={{ width: 220, height: 220, alignItems: "center", justifyContent: "center" }}>
+        <View
+          style={{
+            width: 220,
+            height: 220,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
           {/* Hexagon shape */}
-          <Svg width={220} height={220} viewBox="0 0 220 220" style={{ position: "absolute" }}>
+          <Svg
+            width={220}
+            height={220}
+            viewBox="0 0 220 220"
+            style={{ position: "absolute" }}
+          >
             <Defs>
-              <LinearGradient id="hexBorder" x1="0%" y1="0%" x2="100%" y2="100%">
+              <LinearGradient
+                id="hexBorder"
+                x1="0%"
+                y1="0%"
+                x2="100%"
+                y2="100%"
+              >
                 <Stop offset="0%" stopColor={primary} />
                 <Stop offset="50%" stopColor={secondary} />
                 <Stop offset="100%" stopColor={tertiary} />
@@ -284,7 +399,7 @@ export default function Index() {
                 <Polygon points="110,25 185,67.5 185,152.5 110,195 35,152.5 35,67.5" />
               </ClipPath>
             </Defs>
-            
+
             {/* Main hexagon */}
             <Polygon
               points="110,15 195,65 195,155 110,205 25,155 25,65"
@@ -292,7 +407,7 @@ export default function Index() {
               stroke="url(#hexBorder)"
               strokeWidth="3"
             />
-            
+
             {/* Inner hexagon for depth */}
             <Polygon
               points="110,30 180,72.5 180,147.5 110,190 40,147.5 40,72.5"
@@ -302,10 +417,15 @@ export default function Index() {
               opacity={0.4}
             />
           </Svg>
-          
+
           {/* Logo image clipped to hexagon */}
           {logo && (
-            <Svg width={220} height={220} viewBox="0 0 220 220" style={{ position: "absolute" }}>
+            <Svg
+              width={220}
+              height={220}
+              viewBox="0 0 220 220"
+              style={{ position: "absolute" }}
+            >
               <Defs>
                 <ClipPath id="logoHexClip">
                   <Polygon points="110,25 185,67.5 185,152.5 110,195 35,152.5 35,67.5" />
@@ -326,7 +446,12 @@ export default function Index() {
       </Animated.View>
 
       {/* Brand name - clean and minimal */}
-      <Animated.View style={[textAnimStyle, { position: "absolute", top: height * 0.62, alignItems: "center" }]}>
+      <Animated.View
+        style={[
+          textAnimStyle,
+          { position: "absolute", top: height * 0.62, alignItems: "center" },
+        ]}
+      >
         <Text
           style={{
             color: "#FFFFFF",
@@ -343,7 +468,17 @@ export default function Index() {
       </Animated.View>
 
       {/* Tagline - minimal styling */}
-      <Animated.View style={[textAnimStyle, { position: "absolute", top: height * 0.7, alignItems: "center", paddingHorizontal: 40 }]}>
+      <Animated.View
+        style={[
+          textAnimStyle,
+          {
+            position: "absolute",
+            top: height * 0.7,
+            alignItems: "center",
+            paddingHorizontal: 40,
+          },
+        ]}
+      >
         <Text
           style={{
             color: "#B8B8B8",
