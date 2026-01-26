@@ -459,8 +459,27 @@ export default function Signup() {
           memberEmail = memberEmail + "_member";
         }
 
-        // Get auth user id if available (for future use)
-        let auth_user_id = null;
+        // Get the authenticated Supabase user UUID (auth.users.id)
+        const { data: authData, error: authErr } =
+          await supabase.auth.getUser();
+        if (authErr) {
+          setIsLoading(false);
+          Alert.alert(
+            "Error",
+            authErr.message || "Unable to read authenticated user.",
+          );
+          return;
+        }
+
+        const auth_user_id = authData?.user?.id;
+        if (!auth_user_id) {
+          setIsLoading(false);
+          Alert.alert(
+            "Error",
+            "Signup succeeded, but no authenticated user was found. Please log in and try again.",
+          );
+          return;
+        }
 
         // Insert into users (do NOT include branch_id, not in schema)
         const { error: usersError } = await supabase.from("users").insert([

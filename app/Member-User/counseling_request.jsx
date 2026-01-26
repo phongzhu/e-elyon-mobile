@@ -69,7 +69,9 @@ export default function CounselingRequest({
 
     const { data, error } = await supabase
       .from("users")
-      .select("user_id, users_details:users_details (branch_id)")
+      .select(
+        "user_id, auth_user_id, user_details_id, users_details:users_details (branch_id)",
+      )
       .eq("auth_user_id", authUserId)
       .maybeSingle();
 
@@ -80,6 +82,16 @@ export default function CounselingRequest({
 
     const user_id = data?.user_id;
     const branch_id = pickBranchId(data?.users_details);
+
+    if (__DEV__) {
+      console.log("[CounselingRequest] auth.uid:", authUserId);
+      console.log("[CounselingRequest] users row:", {
+        user_id: data?.user_id,
+        auth_user_id: data?.auth_user_id,
+        user_details_id: data?.user_details_id,
+        branch_id,
+      });
+    }
 
     if (!user_id) return null;
     return { user_id, branch_id };
@@ -98,16 +110,18 @@ export default function CounselingRequest({
         .from("counseling_requests")
         .select(
           `
-          request_id,
-          type,
-          description,
-          status,
-          requested_at,
-          scheduled_at,
-          scheduled_by_user:users!counseling_requests_scheduled_by_fkey (
-            first_name,
-            last_name
-          )
+            request_id,
+            type,
+            description,
+            status,
+            requested_at,
+            scheduled_at,
+            scheduled_by_user:users!counseling_requests_scheduled_by_fkey (
+            user_details:users_details (
+                first_name,
+                last_name
+            )
+            )
         `,
         )
         .eq("user_id", u.user_id)
@@ -117,9 +131,9 @@ export default function CounselingRequest({
       if (error) throw error;
 
       const rows = (data ?? []).map((r) => {
-        const scheduledByName = r.scheduled_by_user
-          ? `${r.scheduled_by_user.first_name ?? ""} ${r.scheduled_by_user.last_name ?? ""}`.trim()
-          : "TBA";
+        const first = r?.scheduled_by_user?.user_details?.first_name ?? "";
+        const last = r?.scheduled_by_user?.user_details?.last_name ?? "";
+        const scheduledByName = `${first} ${last}`.trim() || "TBA";
 
         const dateLabel = r.scheduled_at
           ? formatDateLong(r.scheduled_at)
@@ -227,25 +241,33 @@ export default function CounselingRequest({
         return;
       }
 
+      if (__DEV__) {
+        const { data: authNow } = await supabase.auth.getUser();
+        console.log("[CounselingRequest] insert auth.uid:", authNow?.user?.id);
+        console.log("[CounselingRequest] insert app user:", u);
+      }
+
+      const payload = {
+        user_id: Number(u.user_id),
+        type: counselingType.trim(),
+        description: concern.trim(),
+        status: "Pending",
+        scheduled_at: selectedDate ? selectedDate.toISOString() : null,
+        branch_id: u.branch_id != null ? Number(u.branch_id) : null,
+      };
+
       const { error } = await supabase
         .from("counseling_requests")
-        .insert({
-          user_id: u.user_id,
-          type: counselingType.trim(),
-          description: concern.trim(),
-          status: "Pending",
-          scheduled_at: selectedDate ? selectedDate.toISOString() : null,
-          // branch_id: u.branch_id, // (we'll decide in a bit)
-        })
-        .select("request_id")
-        .single();
+        .insert(payload);
 
       if (error) {
+        console.log("❌ counseling insert error:", error);
         throw error;
       }
 
       setShowRequestModal(false);
       setShowConfirmModal(true);
+      loadCounselingHistory();
 
       setTimeout(() => {
         setShowConfirmModal(false);
@@ -256,12 +278,15 @@ export default function CounselingRequest({
       }, 3000);
     } catch (e) {
       console.error("❌ handleSubmitRequest failed:", e);
+
       const msg =
         e?.message ??
         e?.error_description ??
         e?.details ??
-        "Unable to submit request. Please try again later.";
-      Alert.alert("Error", String(msg));
+        (typeof e === "object" ? JSON.stringify(e, null, 2) : String(e)) ??
+        "Unable to submit request.";
+
+      Alert.alert("Insert failed", String(msg));
     } finally {
       setLoading(false);
     }
