@@ -368,6 +368,28 @@ export default function Signup() {
       try {
         let photo_path: string | null = null;
 
+        // ✅ Get the authenticated Supabase user UUID (auth.users.id) BEFORE inserts (RLS)
+        const { data: authData, error: authErr } =
+          await supabase.auth.getUser();
+        if (authErr) {
+          setIsLoading(false);
+          Alert.alert(
+            "Error",
+            authErr.message || "Unable to read authenticated user.",
+          );
+          return;
+        }
+
+        const auth_user_id = authData?.user?.id;
+        if (!auth_user_id) {
+          setIsLoading(false);
+          Alert.alert(
+            "Error",
+            "No authenticated user found. Verify OTP again.",
+          );
+          return;
+        }
+
         // Upload profile image if selected
         if (profileImage) {
           try {
@@ -407,12 +429,49 @@ export default function Signup() {
           }
         }
 
-        // Insert into users_details, set joined_date to today
+        // Prepare _member email
+        const memberEmail = email.endsWith(".com")
+          ? email.replace(".com", ".com_member")
+          : email + "_member";
+
+        // 1) Insert into users FIRST (user_details_id is nullable)
+        const { data: insertedUser, error: usersInsertErr } = await supabase
+          .from("users")
+          .insert([
+            {
+              user_details_id: null,
+              email: memberEmail,
+              role: "member",
+              is_active: true,
+              auth_user_id,
+            },
+          ])
+          .select("user_id")
+          .single();
+
+        if (usersInsertErr) {
+          setIsLoading(false);
+          Alert.alert(
+            "Users insert failed",
+            usersInsertErr.message || "Failed to save user.",
+          );
+          return;
+        }
+
+        const newUserId = insertedUser?.user_id;
+        if (!newUserId) {
+          setIsLoading(false);
+          Alert.alert("Error", "User ID not returned.");
+          return;
+        }
+
+        // 2) Insert into users_details, set joined_date to today
         const today = new Date().toISOString().split("T")[0];
         const { data: detailsData, error: detailsError } = await supabase
           .from("users_details")
           .insert([
             {
+              auth_user_id, // ✅ required by RLS
               branch_id: branchId,
               first_name: firstName,
               middle_name: middleName || null,
@@ -431,13 +490,13 @@ export default function Signup() {
               joined_date: today,
             },
           ])
-          .select()
+          .select("user_details_id")
           .single();
 
         if (detailsError) {
           setIsLoading(false);
           Alert.alert(
-            "Error",
+            "Details insert failed",
             detailsError.message || "Failed to save user details.",
           );
           return;
@@ -450,51 +509,18 @@ export default function Signup() {
           return;
         }
 
-        // Prepare _member email
-        let memberEmail = email;
+        // 3) Update users.user_details_id
+        const { error: usersUpdateErr } = await supabase
+          .from("users")
+          .update({ user_details_id })
+          .eq("user_id", newUserId);
 
-        if (memberEmail.endsWith(".com")) {
-          memberEmail = memberEmail.replace(".com", ".com_member");
-        } else {
-          memberEmail = memberEmail + "_member";
-        }
-
-        // Get the authenticated Supabase user UUID (auth.users.id)
-        const { data: authData, error: authErr } =
-          await supabase.auth.getUser();
-        if (authErr) {
+        if (usersUpdateErr) {
           setIsLoading(false);
           Alert.alert(
-            "Error",
-            authErr.message || "Unable to read authenticated user.",
+            "Users update failed",
+            usersUpdateErr.message || "Failed to link user details.",
           );
-          return;
-        }
-
-        const auth_user_id = authData?.user?.id;
-        if (!auth_user_id) {
-          setIsLoading(false);
-          Alert.alert(
-            "Error",
-            "Signup succeeded, but no authenticated user was found. Please log in and try again.",
-          );
-          return;
-        }
-
-        // Insert into users (do NOT include branch_id, not in schema)
-        const { error: usersError } = await supabase.from("users").insert([
-          {
-            user_details_id,
-            email: memberEmail,
-            role: "member",
-            is_active: true,
-            auth_user_id,
-          },
-        ]);
-
-        if (usersError) {
-          setIsLoading(false);
-          Alert.alert("Error", usersError.message || "Failed to save user.");
           return;
         }
 

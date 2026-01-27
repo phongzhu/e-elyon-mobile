@@ -3,28 +3,42 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
-    Dimensions,
-    Image,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Dimensions,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import Animated, {
-    Easing,
-    useAnimatedStyle,
-    useSharedValue,
-    withDelay,
-    withSequence,
-    withTiming,
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withSequence,
+  withTiming,
 } from "react-native-reanimated";
 import Svg, { Defs, LinearGradient, Path, Rect, Stop } from "react-native-svg";
 import { supabase } from "../src/lib/supabaseClient";
 
 const { width, height } = Dimensions.get("window");
+
+const toMemberEmail = (raw: string) => {
+  const e = String(raw || "")
+    .trim()
+    .toLowerCase();
+
+  // user should NOT type _member, but if they did, tolerate it
+  if (e.endsWith("_member")) return e;
+
+  // match your signup behavior
+  if (e.endsWith(".com")) return e.replace(/\.com$/i, ".com_member");
+
+  return e + "_member";
+};
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -95,54 +109,83 @@ export default function Login() {
     transform: [{ translateY: formTranslateY.value }],
   }));
 
-  // Email/password login - Simple redirection based on email
+  // Email/password login
   const handleLogin = async () => {
     setIsLoading(true);
     try {
-      // Always append '_member' for member login (after full email)
-      const plainEmail = email.trim();
-      const memberEmail = plainEmail + "_member";
-      // Query users for is_active check using _member email
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("user_id, email, is_active")
-        .eq("email", memberEmail)
-        .single();
-      if (userError) {
-        setIsLoading(false);
-        alert(
-          "A system error occurred: " +
-            (userError.message || JSON.stringify(userError)),
-        );
-        return;
-      }
-      if (!userData) {
-        setIsLoading(false);
-        alert("Invalid Login Credentials");
-        return;
-      }
-      if (!userData.is_active) {
-        setIsLoading(false);
-        alert("Account is not active.");
-        return;
-      }
-      // Proceed with Supabase Auth sign in using plain email
+      // User should NOT type _member / .com_member, but tolerate it.
+      const raw = email.trim().toLowerCase();
+      const plainEmail = raw
+        .replace(/\.com_member$/i, ".com")
+        .replace(/_member$/i, "");
+
+      // 1) Auth login (plain email only)
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email: plainEmail,
         password,
       });
+
       if (signInError) {
         setIsLoading(false);
         alert("Invalid Login Credentials");
         return;
       }
-      // Redirect to member dashboard
+
+      // 2) Now authenticated -> fetch CURRENT user's member row (RLS-safe)
+      const { data: authData, error: authErr } = await supabase.auth.getUser();
+      if (authErr || !authData?.user?.id) {
+        setIsLoading(false);
+        alert("Unable to read authenticated user.");
+        return;
+      }
+
+      const authId = authData.user.id;
+
+      // IMPORTANT: filter by role so 2 rows won't break it
+      const { data: memberRow, error: memberErr } = await supabase
+        .from("users")
+        .select("user_id, email, is_active, role")
+        .eq("auth_user_id", authId)
+        .eq("role", "member")
+        .maybeSingle();
+
+      if (memberErr) {
+        setIsLoading(false);
+        alert("A system error occurred: " + memberErr.message);
+        return;
+      }
+
+      if (!memberRow) {
+        // user exists in auth but not in your app users table (or wrong role)
+        await supabase.auth.signOut();
+        setIsLoading(false);
+        alert("Account record not found. Please contact admin.");
+        return;
+      }
+
+      if (!memberRow.is_active) {
+        await supabase.auth.signOut();
+        setIsLoading(false);
+        alert("Account is not active.");
+        return;
+      }
+
+      // Soft check: expected member email format
+      const expectedMemberEmail = toMemberEmail(plainEmail);
+      if (memberRow.email && memberRow.email !== expectedMemberEmail) {
+        console.warn("Member email format mismatch", {
+          expected: expectedMemberEmail,
+          actual: memberRow.email,
+        });
+      }
+
       router.replace("/Member-User/Member-Dashboard");
-    } catch {
+    } catch (e: any) {
       setIsLoading(false);
-      alert("An error occurred during login.");
+      alert(e?.message || "An error occurred during login.");
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   return (

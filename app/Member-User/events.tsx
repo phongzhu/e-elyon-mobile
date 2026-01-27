@@ -28,6 +28,28 @@ type EventItem = {
   location: string;
 };
 
+const BUCKET = "church-event"; // change if your bucket name is different
+
+const toPublicUrl = (path: string | null | undefined) => {
+  if (!path) return "";
+  if (path.startsWith("http")) return path;
+  return supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+};
+
+const fmtDate = (iso: string) => {
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+};
+
+const fmtTime = (iso: string) => {
+  const d = new Date(iso);
+  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+};
+
 export default function EventsScreen() {
   const [branding, setBranding] = useState<any>(null);
   const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
@@ -40,12 +62,18 @@ export default function EventsScreen() {
   const [showTypeFilter, setShowTypeFilter] = useState(false);
   const [showCategoryFilter, setShowCategoryFilter] = useState(false);
 
+  const [events, setEvents] = useState<EventItem[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
+  const [memberBranchId, setMemberBranchId] = useState<number | null>(null);
+  const [branchResolved, setBranchResolved] = useState(false);
+
   const notifications = [
     {
       id: 1,
       type: "event",
       title: "Youth Fellowship Starting Soon",
-      message: "Youth Fellowship is starting in 30 minutes at the main church. Join us!",
+      message:
+        "Youth Fellowship is starting in 30 minutes at the main church. Join us!",
       time: "5 mins ago",
       icon: "people",
       read: false,
@@ -54,7 +82,8 @@ export default function EventsScreen() {
       id: 2,
       type: "location",
       title: "Near Bustos Campus",
-      message: "You are near Bustos Campus. Sunday Service starts at 10:00 AM today.",
+      message:
+        "You are near Bustos Campus. Sunday Service starts at 10:00 AM today.",
       time: "1 hour ago",
       icon: "location",
       read: false,
@@ -63,7 +92,8 @@ export default function EventsScreen() {
       id: 3,
       type: "reminder",
       title: "Pastor Appreciation Day",
-      message: "Don't forget! Pastor Appreciation Day is this Sunday, October 12.",
+      message:
+        "Don't forget! Pastor Appreciation Day is this Sunday, October 12.",
       time: "2 hours ago",
       icon: "calendar",
       read: true,
@@ -90,135 +120,200 @@ export default function EventsScreen() {
 
   useEffect(() => {
     (async () => {
-      const { data, error } = await supabase.from("ui_settings").select("*").single();
+      const { data, error } = await supabase
+        .from("ui_settings")
+        .select("*")
+        .single();
       if (error) console.error("❌ Branding fetch error:", error);
       else setBranding(data);
     })();
   }, []);
+
+  const loadMemberBranchId = async () => {
+    const { data: auth } = await supabase.auth.getUser();
+    const authUserId = auth?.user?.id;
+    if (!authUserId) return null;
+
+    // IMPORTANT: your branch_id is in users_details, NOT in users
+    const { data, error } = await supabase
+      .from("users")
+      .select("users_details:users_details(branch_id)")
+      .eq("auth_user_id", authUserId)
+      .maybeSingle();
+
+    if (error) {
+      console.error("❌ loadMemberBranchId error:", error);
+      return null;
+    }
+
+    const ud = (data as any)?.users_details;
+    const b = Array.isArray(ud) ? ud?.[0]?.branch_id : ud?.branch_id;
+    return typeof b === "number" ? b : null;
+  };
+
+  const loadEvents = async (branchId: number | null) => {
+    setEventsLoading(true);
+    try {
+      // v_events_display already:
+      // - includes all non-recurring upcoming events
+      // - includes ONLY nearest upcoming occurrence per recurring series
+      let q = supabase
+        .from("v_events_display")
+        .select(
+          `
+        event_id,
+        branch_id,
+        title,
+        description,
+        event_type,
+        location,
+        start_datetime,
+        end_datetime,
+        is_open_for_all,
+        cover_image_path
+      `,
+        )
+        .order("start_datetime", { ascending: true });
+
+      /**
+       * Visibility rules (simple & safe default):
+       * - show open_for_all always
+       * - plus show same-branch events for the member
+       *
+       * If branchId is null (user missing branch), fallback to open_for_all only.
+       */
+      if (branchId != null) {
+        q = q.or(`is_open_for_all.eq.true,branch_id.eq.${branchId}`);
+      } else {
+        q = q.eq("is_open_for_all", true);
+      }
+
+      const { data, error } = await q;
+      if (error) throw error;
+
+      const mapped: EventItem[] = (data ?? []).map((e: any) => ({
+        id: e.event_id,
+        title: e.title ?? "",
+        subtitle: e.description ?? "",
+        date: e.start_datetime ? fmtDate(e.start_datetime) : "",
+        time: e.start_datetime ? fmtTime(e.start_datetime) : "",
+        location: e.location ?? "",
+        image:
+          toPublicUrl(e.cover_image_path) ||
+          "https://via.placeholder.com/600x400?text=Event",
+      }));
+
+      setEvents(mapped);
+    } catch (e) {
+      console.error("❌ loadEvents failed:", e);
+      setEvents([]);
+    } finally {
+      setEventsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    (async () => {
+      const b = await loadMemberBranchId();
+      setMemberBranchId(b);
+      setBranchResolved(true);
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!branchResolved) return;
+    void loadEvents(memberBranchId);
+  }, [branchResolved, memberBranchId]);
 
   const primary = branding?.primary_color || "#064622";
   const secondary = branding?.secondary_color || "#319658";
   const logo = branding?.logo_icon
     ? branding.logo_icon.startsWith("http")
       ? branding.logo_icon
-      : supabase.storage.from("logos").getPublicUrl(branding.logo_icon).data.publicUrl
+      : supabase.storage.from("logos").getPublicUrl(branding.logo_icon).data
+          .publicUrl
     : null;
 
-  const branches = ["Bustos", "Talacsan", "Cavite", "San Roque", "Vizal Pampanga"];
-  const eventDates = ["This Week", "This Month", "This Year", "All Events"];
-  const eventTypes = ["Sunday Service", "Celebration", "Workshop", "Outreach", "Training"];
-  const eventCategories = ["Worship", "Family", "Kids", "Youth", "Community"];
-
-  const events: EventItem[] = [
-    {
-      id: 1,
-      title: "Sunday Service",
-      subtitle:
-        "Join us for our weekly worship service. We’ll have inspiring music, a powerful message, and a welcoming community.",
-      date: "This Sunday",
-      time: "10 AM",
-      location: "Bustos Campus",
-      image: "https://drive.google.com/uc?export=view&id=1etQu4ciwn_DjpIFvQqr_QTCZwiFDAg1G",
-    },
-    {
-      id: 2,
-      title: "Pastor's Appreciation Day",
-      subtitle:
-        "A special celebration to honor and appreciate our beloved pastor's dedicated service.",
-      date: "Sunday, October 12, 2025",
-      time: "9 AM",
-      location: "Talacsan Campus",
-      image: "https://drive.google.com/uc?export=view&id=1d8S_sZ6ZX905mPh_amnwDTUQ54oki4Rh",
-    },
-    {
-      id: 3,
-      title: "Family Fun Day",
-      subtitle:
-        "A special event for families with children. We’ll have activities, games, and snacks for all ages.",
-      date: "July 15th",
-      time: "2 PM",
-      location: "Cavite Community Grounds",
-      image: "https://drive.google.com/uc?export=view&id=1xYi-ocCx6p7-hfS8drA6pr1TcCBTUUEz",
-    },
-    {
-      id: 4,
-      title: "No Midweek Worship Service",
-      subtitle: "Please note that there will be no midweek worship service this week.",
-      date: "This Wednesday",
-      time: "N/A",
-      location: "San Roque",
-      image: "https://drive.google.com/uc?export=view&id=1Aeh61gBWP8b4osmPX-PTuKaR_WkC18YL",
-    },
-    {
-      id: 5,
-      title: "Happy Father's Day",
-      subtitle: "Celebrate and honor all the fathers in our community. Special blessings and recognition.",
-      date: "June 16, 2025",
-      time: "During Service",
-      location: "Vizal Pampanga",
-      image: "https://drive.google.com/uc?export=view&id=1jN5y5v_vHMp5XH6Uo8EGbUT1HIjBtMGA",
-    },
-    {
-      id: 6,
-      title: "ECCM: Bring One Win One Anniversary",
-      subtitle: "Celebrating the anniversary of our Bring One Win One outreach program and its impact.",
-      date: "May 25, 2025",
-      time: "2:00 PM",
-      location: "San Roque Grounds",
-      image: "https://drive.google.com/uc?export=view&id=1Kaz4zQbcBoOQlNXtpBaxrupkp5ACrnJF",
-    },
-    {
-      id: 7,
-      title: "KIDS Ministry: Kids Summer Day Camp",
-      subtitle: "An exciting summer day camp for kids with fun activities, learning, and fellowship.",
-      date: "June - August 2025",
-      time: "9:00 AM - 3:00 PM",
-      location: "Cavite Kids Ministry Center",
-      image: "https://drive.google.com/uc?export=view&id=1i00QukHtR2Ja1ys5QhLi-8YzNfIdE9Xu",
-    },
+  const branches = [
+    "Bustos",
+    "Talacsan",
+    "Cavite",
+    "San Roque",
+    "Vizal Pampanga",
   ];
+  const eventDates = ["This Week", "This Month", "This Year", "All Events"];
+  const eventTypes = [
+    "Sunday Service",
+    "Celebration",
+    "Workshop",
+    "Outreach",
+    "Training",
+  ];
+  const eventCategories = [
+    "All",
+    "Worship",
+    "Family",
+    "Kids",
+    "Youth",
+    "Community",
+  ];
+
+  const emptyEvent: EventItem = {
+    id: 0,
+    title: "",
+    subtitle: "",
+    date: "",
+    time: "",
+    location: "",
+    image: "https://via.placeholder.com/600x400?text=Event",
+  };
 
   const recommendedBranch = branches[0];
   const nearestBranch = selectedBranch || recommendedBranch;
   const recommendedNearestEvent =
     events.find((event) =>
-      event.location.toLowerCase().includes(nearestBranch.toLowerCase())
-    ) || events[0];
+      event.location.toLowerCase().includes(nearestBranch.toLowerCase()),
+    ) ||
+    events[0] ||
+    emptyEvent;
 
   const interestEvent =
-    events.find((event) => event.id !== recommendedNearestEvent.id) || recommendedNearestEvent;
+    events.find((event) => event.id !== recommendedNearestEvent.id) ||
+    recommendedNearestEvent;
 
   const filteredEvents = events.filter((event) => {
-    // Branch filter
-    const branchMatch = !selectedBranch || event.location.toLowerCase().includes(selectedBranch.toLowerCase());
-    
-    // Search filter
-    const searchMatch = !searchQuery || 
+    // Branch filter (UI) still works with location text, but better to use branch_id later
+    const branchMatch =
+      !selectedBranch ||
+      event.location.toLowerCase().includes(selectedBranch.toLowerCase());
+
+    const searchMatch =
+      !searchQuery ||
       event.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       event.subtitle.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    // Date filter
-    const dateMatch = !selectedDate || selectedDate === "All Events" || 
-      event.date.toLowerCase().includes(selectedDate.toLowerCase());
-    
-    // Type filter
-    const typeMatch = !selectedType || event.title.toLowerCase().includes(selectedType.toLowerCase());
-    
-    // Category filter
-    const categoryMatch = !selectedCategory || 
-      (selectedCategory === "Worship" && event.title.includes("Service")) ||
-      (selectedCategory === "Family" && event.title.includes("Family")) ||
-      (selectedCategory === "Kids" && event.title.includes("KIDS")) ||
-      (selectedCategory === "Youth" && event.title.includes("Youth")) ||
-      (selectedCategory === "Community" && event.title.includes("Day"));
-    
-    return branchMatch && searchMatch && dateMatch && typeMatch && categoryMatch;
+
+    // Date/Type/Category filters:
+    // For now, keep them as simple string matching until you decide real DB-driven filters
+    const dateMatch = !selectedDate || selectedDate === "All Events";
+    const typeMatch =
+      !selectedType ||
+      event.title.toLowerCase().includes(selectedType.toLowerCase());
+    const categoryMatch =
+      !selectedCategory ||
+      selectedCategory === "All" ||
+      event.title.toLowerCase().includes(selectedCategory.toLowerCase());
+
+    return (
+      branchMatch && searchMatch && dateMatch && typeMatch && categoryMatch
+    );
   });
 
   const renderEvent = ({ item }: { item: EventItem }) => (
     <View style={[styles.card, { borderColor: "#E3E8E3" }]}>
       <View style={{ flex: 1, paddingRight: 12 }}>
-        <Text style={[styles.cardDate, { color: "#777" }]}>{`${item.date} at ${item.time}`}</Text>
+        <Text
+          style={[styles.cardDate, { color: "#777" }]}
+        >{`${item.date} at ${item.time}`}</Text>
         <Text style={styles.cardTitle}>{item.title}</Text>
         <Text style={styles.cardSubtitle} numberOfLines={3}>
           {item.subtitle}
@@ -253,13 +348,15 @@ export default function EventsScreen() {
       <View style={[styles.header, { backgroundColor: primary }]}>
         <View style={styles.headerLeft}>
           {logo ? (
-            <Image source={{ uri: logo }} style={styles.logo} resizeMode="contain" />
+            <Image
+              source={{ uri: logo }}
+              style={styles.logo}
+              resizeMode="contain"
+            />
           ) : (
             <View style={styles.logoPlaceholder} />
           )}
         </View>
-
-     
 
         <View style={styles.headerRight}>
           <TouchableOpacity
@@ -269,10 +366,15 @@ export default function EventsScreen() {
           >
             <Ionicons name="notifications-outline" size={22} color="#fff" />
             <View style={[styles.badge, { backgroundColor: secondary }]}>
-              <Text style={styles.badgeText}>{notifications.filter((n) => !n.read).length}</Text>
+              <Text style={styles.badgeText}>
+                {notifications.filter((n) => !n.read).length}
+              </Text>
             </View>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.iconButton} onPress={() => router.push("/Member-User/profile")}> 
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={() => router.push("/Member-User/profile")}
+          >
             <Ionicons name="person-circle-outline" size={26} color="#fff" />
           </TouchableOpacity>
         </View>
@@ -300,16 +402,24 @@ export default function EventsScreen() {
             contentContainerStyle={{ gap: 10, paddingVertical: 6 }}
           >
             {["All", ...branches].map((branch) => {
-              const isActive = branch === "All" ? selectedBranch === null : selectedBranch === branch;
+              const isActive =
+                branch === "All"
+                  ? selectedBranch === null
+                  : selectedBranch === branch;
               const label = branch === "All" ? "All Branches" : branch;
               return (
                 <TouchableOpacity
                   key={branch}
                   activeOpacity={0.85}
-                  onPress={() => setSelectedBranch(branch === "All" ? null : branch)}
+                  onPress={() =>
+                    setSelectedBranch(branch === "All" ? null : branch)
+                  }
                   style={[
                     styles.branchChip,
-                    { borderColor: isActive ? secondary : "#e0e5df", backgroundColor: "#fff" },
+                    {
+                      borderColor: isActive ? secondary : "#e0e5df",
+                      backgroundColor: "#fff",
+                    },
                   ]}
                 >
                   <Ionicons
@@ -317,7 +427,12 @@ export default function EventsScreen() {
                     size={14}
                     color={isActive ? secondary : "#556857"}
                   />
-                  <Text style={[styles.branchText, { color: isActive ? secondary : "#2c3a2c" }]}>
+                  <Text
+                    style={[
+                      styles.branchText,
+                      { color: isActive ? secondary : "#2c3a2c" },
+                    ]}
+                  >
                     {label}
                   </Text>
                 </TouchableOpacity>
@@ -327,14 +442,26 @@ export default function EventsScreen() {
         </View>
 
         <View style={[styles.section, { marginTop: -8 }]}>
-          <View style={[styles.recommendCard, { borderColor: "#e0e5df", backgroundColor: "#fff" }]}>
-            <Text style={styles.recommendTitle}>Nearest church activity near you</Text>
+          <View
+            style={[
+              styles.recommendCard,
+              { borderColor: "#e0e5df", backgroundColor: "#fff" },
+            ]}
+          >
+            <Text style={styles.recommendTitle}>
+              Nearest church activity near you
+            </Text>
             <Text style={styles.recommendSubtitle} numberOfLines={3}>
-              Based on your recent visit, the closest branch is {nearestBranch}. We recommend joining {recommendedNearestEvent.title} on {recommendedNearestEvent.date} at {recommendedNearestEvent.time} in {recommendedNearestEvent.location}. Tap below if you want to join again and stay linked to your previous activity.
+              Based on your recent visit, the closest branch is {nearestBranch}.
+              We recommend joining {recommendedNearestEvent.title} on{" "}
+              {recommendedNearestEvent.date} at {recommendedNearestEvent.time}{" "}
+              in {recommendedNearestEvent.location}. Tap below if you want to
+              join again and stay linked to your previous activity.
             </Text>
             <TouchableOpacity
               style={[styles.recommendButton, { backgroundColor: secondary }]}
               activeOpacity={0.9}
+              disabled={recommendedNearestEvent.id === 0}
               onPress={() =>
                 router.push({
                   pathname: "/Member-User/event-details",
@@ -356,14 +483,25 @@ export default function EventsScreen() {
         </View>
 
         <View style={[styles.section, { marginTop: -8 }]}>
-          <View style={[styles.recommendCard, { borderColor: "#e0e5df", backgroundColor: "#fff" }]}>
-            <Text style={styles.recommendTitle}>You might be interested in</Text>
+          <View
+            style={[
+              styles.recommendCard,
+              { borderColor: "#e0e5df", backgroundColor: "#fff" },
+            ]}
+          >
+            <Text style={styles.recommendTitle}>
+              You might be interested in
+            </Text>
             <Text style={styles.recommendSubtitle} numberOfLines={3}>
-              Here is another activity you may like: {interestEvent.title} on {interestEvent.date} at {interestEvent.time} in {interestEvent.location}. Join to build on your previous activity streak.
+              Here is another activity you may like: {interestEvent.title} on{" "}
+              {interestEvent.date} at {interestEvent.time} in{" "}
+              {interestEvent.location}. Join to build on your previous activity
+              streak.
             </Text>
             <TouchableOpacity
               style={[styles.recommendButton, { backgroundColor: secondary }]}
               activeOpacity={0.9}
+              disabled={interestEvent.id === 0}
               onPress={() =>
                 router.push({
                   pathname: "/Member-User/event-details",
@@ -386,34 +524,88 @@ export default function EventsScreen() {
 
         <View style={[styles.section, { marginTop: -4 }]}>
           <View style={styles.filterRow}>
-            <TouchableOpacity 
+            <TouchableOpacity
               onPress={() => setShowDateFilter(true)}
-              style={[styles.filterChip, { borderColor: selectedDate ? secondary : "#e0e5df", backgroundColor: selectedDate ? `${secondary}15` : "#fff" }]}
+              style={[
+                styles.filterChip,
+                {
+                  borderColor: selectedDate ? secondary : "#e0e5df",
+                  backgroundColor: selectedDate ? `${secondary}15` : "#fff",
+                },
+              ]}
             >
-              <Text style={[styles.filterText, { color: selectedDate ? secondary : "#556857", fontWeight: selectedDate ? "700" : "500" }]}>
+              <Text
+                style={[
+                  styles.filterText,
+                  {
+                    color: selectedDate ? secondary : "#556857",
+                    fontWeight: selectedDate ? "700" : "500",
+                  },
+                ]}
+              >
                 {selectedDate ? selectedDate : "Date"}
               </Text>
-              <Ionicons name="chevron-down" size={14} color={selectedDate ? secondary : "#556857"} />
+              <Ionicons
+                name="chevron-down"
+                size={14}
+                color={selectedDate ? secondary : "#556857"}
+              />
             </TouchableOpacity>
 
-            <TouchableOpacity 
+            <TouchableOpacity
               onPress={() => setShowTypeFilter(true)}
-              style={[styles.filterChip, { borderColor: selectedType ? secondary : "#e0e5df", backgroundColor: selectedType ? `${secondary}15` : "#fff" }]}
+              style={[
+                styles.filterChip,
+                {
+                  borderColor: selectedType ? secondary : "#e0e5df",
+                  backgroundColor: selectedType ? `${secondary}15` : "#fff",
+                },
+              ]}
             >
-              <Text style={[styles.filterText, { color: selectedType ? secondary : "#556857", fontWeight: selectedType ? "700" : "500" }]}>
+              <Text
+                style={[
+                  styles.filterText,
+                  {
+                    color: selectedType ? secondary : "#556857",
+                    fontWeight: selectedType ? "700" : "500",
+                  },
+                ]}
+              >
                 {selectedType ? selectedType : "Type"}
               </Text>
-              <Ionicons name="chevron-down" size={14} color={selectedType ? secondary : "#556857"} />
+              <Ionicons
+                name="chevron-down"
+                size={14}
+                color={selectedType ? secondary : "#556857"}
+              />
             </TouchableOpacity>
 
-            <TouchableOpacity 
+            <TouchableOpacity
               onPress={() => setShowCategoryFilter(true)}
-              style={[styles.filterChip, { borderColor: selectedCategory ? secondary : "#e0e5df", backgroundColor: selectedCategory ? `${secondary}15` : "#fff" }]}
+              style={[
+                styles.filterChip,
+                {
+                  borderColor: selectedCategory ? secondary : "#e0e5df",
+                  backgroundColor: selectedCategory ? `${secondary}15` : "#fff",
+                },
+              ]}
             >
-              <Text style={[styles.filterText, { color: selectedCategory ? secondary : "#556857", fontWeight: selectedCategory ? "700" : "500" }]}>
+              <Text
+                style={[
+                  styles.filterText,
+                  {
+                    color: selectedCategory ? secondary : "#556857",
+                    fontWeight: selectedCategory ? "700" : "500",
+                  },
+                ]}
+              >
                 {selectedCategory ? selectedCategory : "Category"}
               </Text>
-              <Ionicons name="chevron-down" size={14} color={selectedCategory ? secondary : "#556857"} />
+              <Ionicons
+                name="chevron-down"
+                size={14}
+                color={selectedCategory ? secondary : "#556857"}
+              />
             </TouchableOpacity>
           </View>
         </View>
@@ -421,6 +613,12 @@ export default function EventsScreen() {
         <View style={[styles.section, { marginTop: -4 }]}>
           <Text style={styles.sectionTitle}>Upcoming Events</Text>
         </View>
+
+        {eventsLoading ? (
+          <Text style={{ paddingHorizontal: 16, color: "#556857" }}>
+            Loading events...
+          </Text>
+        ) : null}
 
         <FlatList
           data={filteredEvents}
@@ -459,10 +657,25 @@ export default function EventsScreen() {
                       setSelectedDate(isActive ? null : date);
                       setShowDateFilter(false);
                     }}
-                    style={[styles.filterOption, { backgroundColor: isActive ? `${secondary}15` : "#fff" }]}
+                    style={[
+                      styles.filterOption,
+                      { backgroundColor: isActive ? `${secondary}15` : "#fff" },
+                    ]}
                   >
-                    <Text style={[styles.filterOptionText, { color: isActive ? secondary : "#333", fontWeight: isActive ? "700" : "500" }]}>{date}</Text>
-                    {isActive && <Ionicons name="checkmark" size={20} color={secondary} />}
+                    <Text
+                      style={[
+                        styles.filterOptionText,
+                        {
+                          color: isActive ? secondary : "#333",
+                          fontWeight: isActive ? "700" : "500",
+                        },
+                      ]}
+                    >
+                      {date}
+                    </Text>
+                    {isActive && (
+                      <Ionicons name="checkmark" size={20} color={secondary} />
+                    )}
                   </TouchableOpacity>
                 );
               })}
@@ -496,10 +709,25 @@ export default function EventsScreen() {
                       setSelectedType(isActive ? null : type);
                       setShowTypeFilter(false);
                     }}
-                    style={[styles.filterOption, { backgroundColor: isActive ? `${secondary}15` : "#fff" }]}
+                    style={[
+                      styles.filterOption,
+                      { backgroundColor: isActive ? `${secondary}15` : "#fff" },
+                    ]}
                   >
-                    <Text style={[styles.filterOptionText, { color: isActive ? secondary : "#333", fontWeight: isActive ? "700" : "500" }]}>{type}</Text>
-                    {isActive && <Ionicons name="checkmark" size={20} color={secondary} />}
+                    <Text
+                      style={[
+                        styles.filterOptionText,
+                        {
+                          color: isActive ? secondary : "#333",
+                          fontWeight: isActive ? "700" : "500",
+                        },
+                      ]}
+                    >
+                      {type}
+                    </Text>
+                    {isActive && (
+                      <Ionicons name="checkmark" size={20} color={secondary} />
+                    )}
                   </TouchableOpacity>
                 );
               })}
@@ -533,10 +761,25 @@ export default function EventsScreen() {
                       setSelectedCategory(isActive ? null : category);
                       setShowCategoryFilter(false);
                     }}
-                    style={[styles.filterOption, { backgroundColor: isActive ? `${secondary}15` : "#fff" }]}
+                    style={[
+                      styles.filterOption,
+                      { backgroundColor: isActive ? `${secondary}15` : "#fff" },
+                    ]}
                   >
-                    <Text style={[styles.filterOptionText, { color: isActive ? secondary : "#333", fontWeight: isActive ? "700" : "500" }]}>{category}</Text>
-                    {isActive && <Ionicons name="checkmark" size={20} color={secondary} />}
+                    <Text
+                      style={[
+                        styles.filterOptionText,
+                        {
+                          color: isActive ? secondary : "#333",
+                          fontWeight: isActive ? "700" : "500",
+                        },
+                      ]}
+                    >
+                      {category}
+                    </Text>
+                    {isActive && (
+                      <Ionicons name="checkmark" size={20} color={secondary} />
+                    )}
                   </TouchableOpacity>
                 );
               })}
@@ -570,15 +813,35 @@ export default function EventsScreen() {
                   ]}
                   activeOpacity={0.8}
                 >
-                  <View style={[styles.notificationIcon, { backgroundColor: `${primary}20` }]}>
-                    <Ionicons name={notif.icon as any} size={22} color={primary} />
+                  <View
+                    style={[
+                      styles.notificationIcon,
+                      { backgroundColor: `${primary}20` },
+                    ]}
+                  >
+                    <Ionicons
+                      name={notif.icon as any}
+                      size={22}
+                      color={primary}
+                    />
                   </View>
                   <View style={styles.notificationContent}>
                     <View style={styles.notificationHeader}>
-                      <Text style={styles.notificationTitle}>{notif.title}</Text>
-                      {!notif.read && <View style={[styles.unreadDot, { backgroundColor: secondary }]} />}
+                      <Text style={styles.notificationTitle}>
+                        {notif.title}
+                      </Text>
+                      {!notif.read && (
+                        <View
+                          style={[
+                            styles.unreadDot,
+                            { backgroundColor: secondary },
+                          ]}
+                        />
+                      )}
                     </View>
-                    <Text style={styles.notificationMessage}>{notif.message}</Text>
+                    <Text style={styles.notificationMessage}>
+                      {notif.message}
+                    </Text>
                     <Text style={styles.notificationTime}>{notif.time}</Text>
                   </View>
                 </TouchableOpacity>

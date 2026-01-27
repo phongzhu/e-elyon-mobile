@@ -3,16 +3,14 @@ import { router, usePathname } from "expo-router";
 import React from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
-export default function MemberNavbar({ baptismVerified = false }: { baptismVerified?: boolean }) {
+export default function MemberNavbar() {
   const pathname = usePathname();
-  const showReports = baptismVerified || pathname === "/Member-User/reports";
 
   const navItems = [
     { name: "Home", icon: "home", route: "/Member-User/Member-Dashboard" },
     { name: "Events", icon: "calendar", route: "/Member-User/events" },
     { name: "Giving", icon: "cash-outline", route: "/Member-User/giving" },
     { name: "Ministry", icon: "people", route: "/Member-User/ministry" },
-    ...(showReports ? [{ name: "Reports", icon: "bar-chart-outline", route: "/Member-User/reports" }] : []),
     { name: "Profile", icon: "person", route: "/Member-User/profile" },
   ];
 
