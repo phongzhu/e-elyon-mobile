@@ -49,17 +49,36 @@ export default function Login() {
   const [passwordFocused, setPasswordFocused] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  // Fetch branding from Supabase
+  // Fetch branding from Supabase (guard against stale/broken refresh tokens)
   useEffect(() => {
     (async () => {
-      const { data, error } = await supabase
+      // 1) If there is a broken/old session stored, clear it.
+      // This prevents "Invalid Refresh Token" from crashing any supabase query.
+      try {
+        const { data, error } = await supabase.auth.getSession();
+
+        const msg = String(error?.message || "").toLowerCase();
+        if (msg.includes("refresh token")) {
+          await supabase.auth.signOut({ scope: "local" });
+        }
+
+        // If session exists but is weird/empty, just proceed.
+        void data?.session;
+      } catch (e: any) {
+        const msg = String(e?.message || "").toLowerCase();
+        if (msg.includes("refresh token")) {
+          await supabase.auth.signOut({ scope: "local" });
+        }
+      }
+
+      // 2) Now it's safe to query branding
+      const { data: brand, error: brandErr } = await supabase
         .from("ui_settings")
         .select("*")
         .single();
-      if (error) console.error("❌ Branding fetch error:", error);
-      else {
-        setBranding(data);
-      }
+
+      if (brandErr) console.error("❌ Branding fetch error:", brandErr);
+      else setBranding(brand);
     })();
   }, []);
 
