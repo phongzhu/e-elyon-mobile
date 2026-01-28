@@ -16,6 +16,17 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npx expo start
    ```
 
+## Environment variables
+
+This app requires Supabase credentials. Create a .env file in the project root using the template in .env.example, then set:
+
+- EXPO_PUBLIC_SUPABASE_URL
+- EXPO_PUBLIC_SUPABASE_ANON_KEY
+
+Optional (for Radar geo-fencing):
+
+- EXPO_PUBLIC_RADAR_PUBLISHABLE_KEY
+
 In the output, you'll find options to open the app in a
 
 - [development build](https://docs.expo.dev/develop/development-builds/introduction/)

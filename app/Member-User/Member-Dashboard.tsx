@@ -200,15 +200,17 @@ const AttendanceView = ({ branding }: { branding: any }) => {
       .from("users")
       .select(`user_id, users_details:users_details (branch_id)`)
       .eq("auth_user_id", authUserId)
-      .maybeSingle();
+      .order("updated_at", { ascending: false })
+      .limit(1);
 
     if (error) {
       console.error("❌ getAppUser error:", error);
       return null;
     }
 
-    const user_id = data?.user_id;
-    const branch_id = pickBranchId(data?.users_details);
+    const row = Array.isArray(data) ? data[0] : data;
+    const user_id = row?.user_id;
+    const branch_id = pickBranchId(row?.users_details);
 
     if (!user_id) return null;
     return { user_id, branch_id };
@@ -593,15 +595,17 @@ const ResourcesView = ({ branding }: { branding: any }) => {
       .from("users")
       .select(`user_id, users_details:users_details (branch_id)`)
       .eq("auth_user_id", authUserId)
-      .maybeSingle();
+      .order("updated_at", { ascending: false })
+      .limit(1);
 
     if (error) {
       console.error("❌ getAppUser error:", error);
       return null;
     }
 
-    const user_id = data?.user_id;
-    const branch_id = pickBranchId(data?.users_details);
+    const row = Array.isArray(data) ? data[0] : data;
+    const user_id = row?.user_id;
+    const branch_id = pickBranchId(row?.users_details);
 
     if (!user_id) return null;
     return { user_id, branch_id };
@@ -1215,10 +1219,12 @@ export default function MemberDashboard() {
           .from("users")
           .select(`user_id, users_details:users_details (branch_id)`)
           .eq("auth_user_id", authUserId)
-          .maybeSingle();
+          .order("updated_at", { ascending: false })
+          .limit(1);
 
-        const uId = appUser?.user_id as number | undefined;
-        const bId = pickBranchId(appUser?.users_details);
+        const appUserRow = Array.isArray(appUser) ? appUser[0] : appUser;
+        const uId = appUserRow?.user_id as number | undefined;
+        const bId = pickBranchId(appUserRow?.users_details);
 
         let bmIds: number[] = [];
         if (uId) {
@@ -1304,9 +1310,11 @@ export default function MemberDashboard() {
         .from("users")
         .select("user_id")
         .eq("auth_user_id", authUserId)
-        .maybeSingle();
+        .order("updated_at", { ascending: false })
+        .limit(1);
 
-      const userId = appUser?.user_id;
+      const appUserRow = Array.isArray(appUser) ? appUser[0] : appUser;
+      const userId = appUserRow?.user_id;
       if (!userId) {
         setNotifications([]);
         return;
@@ -1354,10 +1362,12 @@ export default function MemberDashboard() {
         .from("users")
         .select(`user_id, users_details:users_details (branch_id)`)
         .eq("auth_user_id", authUserId)
-        .maybeSingle();
+        .order("updated_at", { ascending: false })
+        .limit(1);
 
-      const userId = appUser?.user_id;
-      const branchId = pickBranchId(appUser?.users_details);
+      const appUserRow = Array.isArray(appUser) ? appUser[0] : appUser;
+      const userId = appUserRow?.user_id;
+      const branchId = pickBranchId(appUserRow?.users_details);
       if (!userId) return;
 
       // Current month date range

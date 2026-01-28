@@ -139,14 +139,16 @@ export default function EventsScreen() {
       .from("users")
       .select("users_details:users_details(branch_id)")
       .eq("auth_user_id", authUserId)
-      .maybeSingle();
+      .order("updated_at", { ascending: false })
+      .limit(1);
 
     if (error) {
       console.error("❌ loadMemberBranchId error:", error);
       return null;
     }
 
-    const ud = (data as any)?.users_details;
+    const row = Array.isArray(data) ? data[0] : data;
+    const ud = (row as any)?.users_details;
     const b = Array.isArray(ud) ? ud?.[0]?.branch_id : ud?.branch_id;
     return typeof b === "number" ? b : null;
   };

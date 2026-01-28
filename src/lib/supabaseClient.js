@@ -37,10 +37,24 @@ const createStorageAdapter = () => {
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+const hasSupabaseEnv = Boolean(supabaseUrl && supabaseAnonKey);
+
+if (!hasSupabaseEnv) {
+  const message =
+    "Missing EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_ANON_KEY. Add a .env file with these values.";
+  if (typeof __DEV__ !== "undefined" && __DEV__) {
+    console.warn(message);
+  } else {
+    throw new Error(message);
+  }
+}
 
 export const OAUTH_REDIRECT_URL = Linking.createURL('/auth/callback');
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+const safeUrl = supabaseUrl || "http://localhost:54321";
+const safeAnonKey = supabaseAnonKey || "public-anon-key";
+
+export const supabase = createClient(safeUrl, safeAnonKey, {
   auth: {
     storage: createStorageAdapter(),
     autoRefreshToken: true,
