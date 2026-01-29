@@ -6,12 +6,14 @@ import {
     StyleSheet,
     Text,
     TouchableOpacity,
-    View
+    View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../src/lib/supabaseClient";
 import MemberNavbar from "./member-navbar";
 
 export default function FamilyScreen() {
+  const insets = useSafeAreaInsets();
   const [branding, setBranding] = useState<any>(null);
 
   useEffect(() => {
@@ -35,7 +37,12 @@ export default function FamilyScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "#fff" }}>
-      <View style={[styles.header, { backgroundColor: primary }]}>
+      <View
+        style={[
+          styles.header,
+          { backgroundColor: primary, paddingTop: insets.top },
+        ]}
+      >
         <View style={styles.headerLeft} />
         <Text style={styles.headerTitle}>Family Members</Text>
         <View style={styles.headerRight}>

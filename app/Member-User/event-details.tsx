@@ -14,6 +14,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { matchesRadarGeofence, radarTrack } from "../../src/lib/radarClient";
 import { supabase } from "../../src/lib/supabaseClient";
 
@@ -22,6 +23,7 @@ if (Platform.OS === "web") {
 }
 
 export default function EventDetails() {
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const params = useLocalSearchParams();
   const [branding, setBranding] = useState<any>(null);
@@ -753,7 +755,12 @@ export default function EventDetails() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "#fff" }}>
-      <View style={[styles.header, { backgroundColor: primary }]}>
+      <View
+        style={[
+          styles.header,
+          { backgroundColor: primary, paddingTop: insets.top },
+        ]}
+      >
         <View style={styles.headerLeft}>
           <TouchableOpacity onPress={() => router.back()} style={styles.iconButton}>
             <Ionicons name="arrow-back" size={22} color="#fff" />

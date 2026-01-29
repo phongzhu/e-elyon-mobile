@@ -2,8 +2,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, usePathname } from "expo-router";
 import React from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function MemberNavbar() {
+  const insets = useSafeAreaInsets();
   const pathname = usePathname();
 
   const navItems = [
@@ -17,7 +19,7 @@ export default function MemberNavbar() {
   const isActive = (route: string) => pathname === route;
 
   return (
-    <View style={styles.navbar}>
+    <View style={[styles.navbar, { paddingBottom: 12 + insets.bottom }]}>
       {navItems.map((item) => (
         <TouchableOpacity
           key={item.name}
@@ -52,7 +54,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "#e0e0e0",
     paddingVertical: 12,
-    paddingBottom: 20,
   },
   navItem: {
     alignItems: "center",

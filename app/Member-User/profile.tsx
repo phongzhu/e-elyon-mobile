@@ -12,6 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../src/lib/supabaseClient";
 import MemberNavbar from "./member-navbar";
 
@@ -94,6 +95,7 @@ function generateUserCode() {
 }
 
 export default function ProfileScreen() {
+  const insets = useSafeAreaInsets();
   const [branding, setBranding] = useState<any>(null);
 
   // Theme colors (fallbacks)
@@ -656,7 +658,7 @@ export default function ProfileScreen() {
     <View style={{ flex: 1, backgroundColor: "#fff" }}>
       <ScrollView
         style={styles.container}
-        contentContainerStyle={{ paddingBottom: 170 }}
+        contentContainerStyle={{ paddingBottom: 170, paddingTop: insets.top }}
         showsVerticalScrollIndicator={false}
       >
         {/* Tab Navigation */}

@@ -8,14 +8,16 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Circle, Polyline, Stop, LinearGradient as SvgLinearGradient } from "react-native-svg";
 import { supabase } from "../../src/lib/supabaseClient";
 import { recordsByTab } from "./giving-history";
 import MemberNavbar from "./member-navbar";
 
 export default function GivingScreen() {
+  const insets = useSafeAreaInsets();
   const [branding, setBranding] = useState<any>(null);
   const [showNotifications, setShowNotifications] = useState(false);
 
@@ -117,7 +119,12 @@ export default function GivingScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "#fff" }}>
-      <View style={[styles.header, { backgroundColor: primary }]}>
+      <View
+        style={[
+          styles.header,
+          { backgroundColor: primary, paddingTop: insets.top },
+        ]}
+      >
         <View style={styles.headerLeft}>
           {logo ? (
             <Image source={{ uri: logo }} style={styles.logo} resizeMode="contain" />

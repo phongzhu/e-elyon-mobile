@@ -20,6 +20,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SvgXml } from "react-native-svg";
 import { RRule } from "rrule";
 import { supabase } from "../../src/lib/supabaseClient";
@@ -1100,6 +1101,7 @@ const ResourcesView = ({ branding }: { branding: any }) => {
 };
 
 export default function MemberDashboard() {
+  const insets = useSafeAreaInsets();
   const [branding, setBranding] = useState<any>(null);
   const [searchFocused, setSearchFocused] = useState(false);
   const [showQRModal, setShowQRModal] = useState(false);
@@ -2084,6 +2086,7 @@ export default function MemberDashboard() {
           styles.header,
           {
             backgroundColor: primary,
+            paddingTop: insets.top,
           },
         ]}
       >

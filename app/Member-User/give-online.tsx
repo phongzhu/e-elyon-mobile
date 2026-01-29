@@ -1,12 +1,23 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
-import { Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import {
+  Image,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BankIcon, GcashIcon, MayaIcon } from "../../components/ui/wallet-icons";
 import { supabase } from "../../src/lib/supabaseClient";
 import MemberNavbar from "./member-navbar";
 
 export default function GiveOnlineScreen() {
+  const insets = useSafeAreaInsets();
   const [branding, setBranding] = useState<any>(null);
   const [selectedWallet, setSelectedWallet] = useState<string | null>(null);
   const [selectedOfferingType, setSelectedOfferingType] = useState<string | null>(null);
@@ -54,7 +65,12 @@ export default function GiveOnlineScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "#fff" }}>
-      <View style={[styles.header, { backgroundColor: primary }]}>
+      <View
+        style={[
+          styles.header,
+          { backgroundColor: primary, paddingTop: insets.top },
+        ]}
+      >
         <View style={styles.headerLeft}>
           <TouchableOpacity style={styles.iconButton} onPress={() => router.back()}>
             <Ionicons name="arrow-back" size={22} color="#fff" />

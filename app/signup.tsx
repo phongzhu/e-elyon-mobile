@@ -5,7 +5,6 @@ import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
   Alert,
-  Dimensions,
   KeyboardAvoidingView,
   Platform,
   Image as RNImage,
@@ -14,6 +13,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from "react-native";
 import DropDownPicker from "react-native-dropdown-picker";
 import Animated, {
@@ -23,11 +23,10 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import Svg, { Defs, LinearGradient, Path, Rect, Stop } from "react-native-svg";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import philippineAddresses from "../src/data/philippine_provinces_cities_municipalities_and_barangays_2019v2.json";
 import { supabase } from "../src/lib/supabaseClient";
-
-const { width, height } = Dimensions.get("window");
 
 // Philippine phone number formatter
 const formatPhilippinePhone = (value: string) => {
@@ -61,6 +60,9 @@ const formatPhilippinePhone = (value: string) => {
 };
 
 export default function Signup() {
+  const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const contentMinHeight = Math.max(0, height - insets.top - insets.bottom);
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [profileImageUploading, setProfileImageUploading] = useState(false);
   const [stage, setStage] = useState<
@@ -1741,8 +1743,10 @@ export default function Signup() {
             backgroundColor: "#0a1612",
             justifyContent: "center",
             alignItems: "center",
-            padding: 24,
-            minHeight: height,
+            paddingTop: insets.top + 24,
+            paddingBottom: insets.bottom + 24,
+            paddingHorizontal: 24,
+            minHeight: contentMinHeight,
           }}
         >
           {/* Background gradient */}

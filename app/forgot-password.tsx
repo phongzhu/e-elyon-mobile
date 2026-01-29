@@ -4,7 +4,6 @@ import { router } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
-  Dimensions,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -13,11 +12,11 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from "react-native";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../src/lib/supabaseClient";
-
-const { width, height } = Dimensions.get("window");
 
 type Step = "email" | "otp" | "password";
 
@@ -37,6 +36,9 @@ const isValidPassword = (p: string) => {
 };
 
 export default function ForgotPassword() {
+  const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const contentMinHeight = Math.max(0, height - insets.top - insets.bottom);
   const [branding, setBranding] = useState<any>(null);
 
   const primary = branding?.primary_color || "#064622";
@@ -237,8 +239,10 @@ export default function ForgotPassword() {
             backgroundColor: "#0a1612",
             justifyContent: "center",
             alignItems: "center",
-            padding: 24,
-            minHeight: height,
+            paddingTop: insets.top + 24,
+            paddingBottom: insets.bottom + 24,
+            paddingHorizontal: 24,
+            minHeight: contentMinHeight,
           }}
         >
           {/* Background gradient (match login vibe) */}

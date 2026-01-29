@@ -13,6 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../src/lib/supabaseClient";
 import MemberNavbar from "./member-navbar";
 
@@ -51,6 +52,7 @@ const fmtTime = (iso: string) => {
 };
 
 export default function EventsScreen() {
+  const insets = useSafeAreaInsets();
   const [branding, setBranding] = useState<any>(null);
   const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -347,7 +349,12 @@ export default function EventsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "#F7F9F7" }}>
-      <View style={[styles.header, { backgroundColor: primary }]}>
+      <View
+        style={[
+          styles.header,
+          { backgroundColor: primary, paddingTop: insets.top },
+        ]}
+      >
         <View style={styles.headerLeft}>
           {logo ? (
             <Image

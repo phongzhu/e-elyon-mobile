@@ -7,12 +7,14 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../src/lib/supabaseClient";
 import MemberNavbar from "./member-navbar";
 
 export default function ReportsScreen() {
+  const insets = useSafeAreaInsets();
   const [branding, setBranding] = useState<any>(null);
   const [showFinancialModal, setShowFinancialModal] = useState(false);
   const [showAnnualModal, setShowAnnualModal] = useState(false);
@@ -71,7 +73,12 @@ export default function ReportsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "#fff" }}>
-      <View style={[styles.header, { backgroundColor: primary }]}>
+      <View
+        style={[
+          styles.header,
+          { backgroundColor: primary, paddingTop: insets.top },
+        ]}
+      >
         <View style={styles.headerLeft} />
         <Text style={styles.headerTitle}>Reports</Text>
         <View style={styles.headerRight}>

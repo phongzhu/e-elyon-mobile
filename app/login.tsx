@@ -3,7 +3,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
-  Dimensions,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -12,6 +11,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from "react-native";
 import Animated, {
   Easing,
@@ -22,9 +22,8 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import Svg, { Defs, LinearGradient, Path, Rect, Stop } from "react-native-svg";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../src/lib/supabaseClient";
-
-const { width, height } = Dimensions.get("window");
 
 const toMemberEmail = (raw: string) => {
   const e = String(raw || "")
@@ -41,6 +40,9 @@ const toMemberEmail = (raw: string) => {
 };
 
 export default function Login() {
+  const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const contentMinHeight = Math.max(0, height - insets.top - insets.bottom);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -222,8 +224,10 @@ export default function Login() {
             backgroundColor: "#0a1612",
             justifyContent: "center",
             alignItems: "center",
-            padding: 24,
-            minHeight: height,
+            paddingTop: insets.top + 24,
+            paddingBottom: insets.bottom + 24,
+            paddingHorizontal: 24,
+            minHeight: contentMinHeight,
           }}
         >
           {/* Background gradient */}

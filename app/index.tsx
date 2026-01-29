@@ -1,7 +1,7 @@
 // app/index.tsx
 import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
-import { Dimensions, Text, View } from "react-native";
+import { Text, View, useWindowDimensions } from "react-native";
 import Animated, {
     Easing,
     interpolate,
@@ -22,12 +22,14 @@ import Svg, {
     Rect,
     Stop,
 } from "react-native-svg";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../src/lib/supabaseClient";
-
-const { width, height } = Dimensions.get("window");
 
 export default function Index() {
   const [branding, setBranding] = useState<any>(null);
+  const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const contentHeight = Math.max(0, height - insets.top - insets.bottom);
 
   // Fetch UI branding
   useEffect(() => {
@@ -259,6 +261,8 @@ export default function Index() {
           justifyContent: "center",
           alignItems: "center",
           overflow: "hidden",
+          paddingTop: insets.top,
+          paddingBottom: insets.bottom,
         },
       ]}
     >
@@ -492,7 +496,11 @@ export default function Index() {
       <Animated.View
         style={[
           textAnimStyle,
-          { position: "absolute", top: height * 0.62, alignItems: "center" },
+          {
+            position: "absolute",
+            top: insets.top + contentHeight * 0.62,
+            alignItems: "center",
+          },
         ]}
       >
         <Text
@@ -516,7 +524,7 @@ export default function Index() {
           textAnimStyle,
           {
             position: "absolute",
-            top: height * 0.7,
+            top: insets.top + contentHeight * 0.7,
             alignItems: "center",
             paddingHorizontal: 40,
           },
