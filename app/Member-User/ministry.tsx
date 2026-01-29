@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Notifications from "expo-notifications";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -62,6 +62,12 @@ function formatBranchAddress(b?: Branch | null) {
     .filter(Boolean);
   return parts.join(", ");
 }
+
+const fmtDateTime = (v?: string | null) => {
+  if (!v) return "—";
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString();
+};
 
 const normalizeGender = (v: any) => {
   const s = String(v ?? "").trim().toLowerCase();
@@ -197,6 +203,19 @@ export default function MinistryScreen() {
     MinistryRequirementRow[]
   >([]);
   const [viewAnswers, setViewAnswers] = useState<Record<number, any>>({});
+  const [showTasksModal, setShowTasksModal] = useState(false);
+  const [myTasks, setMyTasks] = useState<any[]>([]);
+  const [loadingTasks, setLoadingTasks] = useState(false);
+
+  const [showDeclineModal, setShowDeclineModal] = useState(false);
+  const [declineReason, setDeclineReason] = useState("");
+  const [declineTask, setDeclineTask] = useState<any | null>(null);
+  const pendingCount = useMemo(() => {
+    return myTasks.filter((t) => {
+      const s = String(t.response_status || "").toLowerCase();
+      return !s || s === "pending";
+    }).length;
+  }, [myTasks]);
 
   // Notifications UI (still placeholder — can wire later)
   const [showNotifications, setShowNotifications] = useState(false);
@@ -534,6 +553,142 @@ export default function MinistryScreen() {
       setErr(e?.message || "Failed to load application.");
     }
   }, []);
+
+  const goToMinistry = useCallback((bmId?: number | null) => {
+    if (!bmId) {
+      setErr("Unable to open ministry. Missing ID.");
+      return;
+    }
+    router.push(`/Member-User/view-ministry?bmId=${bmId}`);
+  }, []);
+
+  const loadMyAssignedTasks = useCallback(async () => {
+    setLoadingTasks(true);
+    setErr("");
+    try {
+      const { data: authRes, error: authErr } = await supabase.auth.getUser();
+      if (authErr) throw authErr;
+      const authUid = authRes?.user?.id;
+      if (!authUid) throw new Error("No authenticated user.");
+
+      const { data, error } = await supabase
+        .from("ministry_task_assignees")
+        .select(
+          `
+          task_id,
+          response_status,
+          decline_reason,
+          response_reason,
+          responded_at,
+          assigned_at,
+          slot_id,
+          task:ministry_activity_tasks(
+            task_id, activity_id, title, details, location, priority, status, task_start, task_end,
+            activity:ministry_activities(activity_id, branch_ministry_id, title, planned_start, planned_end, location, status)
+          )
+        `,
+        )
+        .eq("assignee_auth_user_id", authUid)
+        .order("assigned_at", { ascending: false });
+
+      if (error) throw error;
+
+      const merged = (data ?? [])
+        .filter((r: any) => r.task)
+        .map((row: any) => ({
+          ...row,
+          task: row.task,
+          activity: row.task?.activity || null,
+        }));
+
+      merged.sort((x: any, y: any) => {
+        const ax = new Date(x?.task?.task_start || 0).getTime();
+        const ay = new Date(y?.task?.task_start || 0).getTime();
+        return ax - ay;
+      });
+
+      setMyTasks(merged);
+    } catch (e: any) {
+      setErr(e?.message || "Failed to load tasks.");
+    } finally {
+      setLoadingTasks(false);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (yourMinistries.length > 0) {
+        void loadMyAssignedTasks();
+      }
+    }, [yourMinistries.length, loadMyAssignedTasks]),
+  );
+
+  const respondToTask = useCallback(
+    async (
+      taskId: number,
+      action: "Confirmed" | "Declined",
+      reason: string,
+    ) => {
+      const { data: authRes, error: authErr } = await supabase.auth.getUser();
+      if (authErr) throw authErr;
+
+      const authUid = authRes?.user?.id;
+      if (!authUid) throw new Error("No authenticated user.");
+
+      const payload: any = {
+        response_status: action,
+        responded_at: new Date().toISOString(),
+        response_reason: reason?.trim() || null,
+      };
+
+    if (action === "Declined") {
+      payload.decline_reason = reason?.trim() || null;
+    }
+
+      const { error } = await supabase
+        .from("ministry_task_assignees")
+        .update(payload)
+        .eq("task_id", taskId)
+        .eq("assignee_auth_user_id", authUid);
+
+      if (error) throw error;
+    },
+    [],
+  );
+
+  const submitDecline = useCallback(async () => {
+    if (!declineTask?.task_id) return;
+    const reason = declineReason.trim();
+    if (!reason) {
+      setErr("Please enter a reason.");
+      return;
+    }
+
+    setErr("");
+    try {
+      await respondToTask(declineTask.task_id, "Declined", reason);
+    } catch (e: any) {
+      setErr(e?.message || "Failed to submit response.");
+      return;
+    }
+
+    setShowDeclineModal(false);
+    setDeclineReason("");
+    setDeclineTask(null);
+    await loadMyAssignedTasks();
+  }, [declineReason, declineTask, loadMyAssignedTasks, respondToTask]);
+
+  const confirmTask = useCallback(
+    async (taskId: number) => {
+      try {
+        await respondToTask(taskId, "Confirmed", "");
+        await loadMyAssignedTasks();
+      } catch (e: any) {
+        setErr(e?.message || "Failed to confirm task.");
+      }
+    },
+    [loadMyAssignedTasks, respondToTask],
+  );
 
   const deleteDraftApplication = useCallback(
     async (appId: number) => {
@@ -972,7 +1127,40 @@ export default function MinistryScreen() {
               <>
                 {/* Your Ministries */}
                 <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>Your Ministries</Text>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                    }}
+                  >
+                    <Text style={styles.sectionTitle}>Your Ministries</Text>
+                    {yourMinistries.length > 0 ? (
+                      <TouchableOpacity
+                        style={{
+                          backgroundColor: "#f0f0f0",
+                          borderRadius: 999,
+                          paddingVertical: 6,
+                          paddingHorizontal: 12,
+                          marginBottom: 12,
+                        }}
+                        onPress={async () => {
+                          await loadMyAssignedTasks();
+                          setShowTasksModal(true);
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: "#333",
+                            fontWeight: "900",
+                            fontSize: 12,
+                          }}
+                        >
+                          View My Tasks{pendingCount > 0 ? ` (${pendingCount})` : ""}
+                        </Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
                   {loadingMinistries ? (
                     <ActivityIndicator />
                   ) : yourMinistries.length === 0 ? (
@@ -996,9 +1184,7 @@ export default function MinistryScreen() {
                             styles.myMinistryPill,
                             { borderColor: `${secondary}40` },
                           ]}
-                          onPress={() => {
-                            setErr("Ministry details screen coming soon.");
-                          }}
+                          onPress={() => goToMinistry(bmId)}
                         >
                           <Text style={{ fontWeight: "800", color: "#111" }}>
                             {name}
@@ -1023,7 +1209,7 @@ export default function MinistryScreen() {
                                 paddingHorizontal: 12,
                               }}
                               onPress={() => {
-                                setErr("Ministry details screen coming soon.");
+                                goToMinistry(bmId);
                               }}
                             >
                               <Text
@@ -2119,6 +2305,218 @@ export default function MinistryScreen() {
         </View>
       </Modal>
 
+      {/* My Assigned Tasks Modal */}
+      <Modal
+        visible={showTasksModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowTasksModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.requestModalContent}>
+            <View style={styles.requestHeader}>
+              <Text style={styles.requestTitle}>My Assigned Tasks</Text>
+              <TouchableOpacity onPress={() => setShowTasksModal(false)}>
+                <Ionicons name="close" size={24} color="#000" />
+              </TouchableOpacity>
+            </View>
+
+            {loadingTasks ? (
+              <View style={{ paddingVertical: 20 }}>
+                <ActivityIndicator />
+                <Text style={{ marginTop: 10, color: "#666" }}>
+                  Loading tasks...
+                </Text>
+              </View>
+            ) : myTasks.length === 0 ? (
+              <Text style={{ color: "#666" }}>
+                No assigned tasks found for your ministries.
+              </Text>
+            ) : (
+              <ScrollView style={{ maxHeight: 420 }}>
+                {myTasks.map((row) => {
+                  const t = row.task || {};
+                  const a = row.activity || {};
+                  const status = String(row.response_status || "Pending");
+                  const isDeclined = status === "Declined";
+                  const isAccepted = status === "Confirmed";
+                  const start = t.task_start
+                    ? new Date(t.task_start).toLocaleString()
+                    : "TBD";
+                  const end = t.task_end
+                    ? new Date(t.task_end).toLocaleString()
+                    : "";
+                  const activityDate = `${fmtDateTime(a.planned_start)} - ${fmtDateTime(a.planned_end)}`;
+                  const showDecline = !isDeclined;
+                  const showConfirm = !isAccepted;
+
+                  return (
+                    <View
+                      key={`${row.task_id}-${row.slot_id || ""}`}
+                      style={{
+                        borderWidth: 1,
+                        borderColor: "#e5e7eb",
+                        borderRadius: 12,
+                        padding: 12,
+                        marginBottom: 12,
+                      }}
+                    >
+                      <Text style={{ fontWeight: "900", color: "#111" }}>
+                        {safeText(a.title, "Activity")}
+                      </Text>
+                      <Text style={{ color: "#666", marginTop: 2 }}>
+                        {activityDate}
+                        {a.location ? ` - ${a.location}` : ""}
+                      </Text>
+
+                      <View style={{ marginTop: 10 }}>
+                        <Text style={{ fontWeight: "800", color: "#111" }}>
+                          {safeText(t.title, "Task")}
+                        </Text>
+                        <Text style={{ color: "#666", marginTop: 4 }}>
+                          {start}
+                          {end ? ` - ${end}` : ""}
+                        </Text>
+                        {t.details ? (
+                          <Text style={{ color: "#444", marginTop: 6 }}>
+                            {t.details}
+                          </Text>
+                        ) : null}
+                      </View>
+
+                      <View
+                        style={{
+                          marginTop: 10,
+                          alignSelf: "flex-start",
+                          paddingVertical: 4,
+                          paddingHorizontal: 10,
+                          borderRadius: 999,
+                          backgroundColor:
+                            isAccepted
+                              ? "#dcfce7"
+                              : isDeclined
+                                ? "#fee2e2"
+                                : "#fff7ed",
+                        }}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 12,
+                            fontWeight: "800",
+                            color:
+                              isAccepted
+                                ? "#166534"
+                                : isDeclined
+                                  ? "#b91c1c"
+                                  : "#92400e",
+                          }}
+                        >
+                          {status}
+                        </Text>
+                      </View>
+
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          gap: 8,
+                          marginTop: 12,
+                        }}
+                      >
+                        {showConfirm ? (
+                          <TouchableOpacity
+                            style={{
+                              backgroundColor: "#e8f5e9",
+                              borderRadius: 999,
+                              paddingVertical: 6,
+                              paddingHorizontal: 12,
+                            }}
+                            onPress={() => confirmTask(Number(t.task_id))}
+                          >
+                            <Text
+                              style={{
+                                color: "#1b5e20",
+                                fontWeight: "900",
+                                fontSize: 12,
+                              }}
+                            >
+                              Confirm
+                            </Text>
+                          </TouchableOpacity>
+                        ) : null}
+                        {showDecline ? (
+                          <TouchableOpacity
+                            style={{
+                              backgroundColor: "#fef2f2",
+                              borderRadius: 999,
+                              paddingVertical: 6,
+                              paddingHorizontal: 12,
+                            }}
+                            onPress={() => {
+                              setDeclineTask(row);
+                              setDeclineReason("");
+                              setShowDeclineModal(true);
+                            }}
+                          >
+                            <Text
+                              style={{
+                                color: "#b91c1c",
+                                fontWeight: "900",
+                                fontSize: 12,
+                              }}
+                            >
+                              Not available
+                            </Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Decline Task Modal */}
+      <Modal
+        visible={showDeclineModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDeclineModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.requestModalContent}>
+            <View style={styles.requestHeader}>
+              <Text style={styles.requestTitle}>Not Available</Text>
+              <TouchableOpacity onPress={() => setShowDeclineModal(false)}>
+                <Ionicons name="close" size={24} color="#000" />
+              </TouchableOpacity>
+            </View>
+            <Text style={{ color: "#666", marginBottom: 8 }}>
+              Please tell us why you can't take this task.
+            </Text>
+            <TextInput
+              placeholder="Enter reason"
+              placeholderTextColor="#8a938a"
+              value={declineReason}
+              onChangeText={setDeclineReason}
+              style={[styles.input, { height: 90 }]}
+              multiline
+            />
+            <TouchableOpacity
+              style={[
+                styles.primaryCta,
+                { backgroundColor: primary, marginTop: 12 },
+              ]}
+              onPress={submitDecline}
+            >
+              <Text style={styles.primaryCtaText}>Submit</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* Notifications modal left as-is for now */}
       <Modal
         visible={showNotifications}
@@ -2323,3 +2721,4 @@ const styles = StyleSheet.create({
     padding: 16,
   },
 });
+
