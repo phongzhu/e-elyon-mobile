@@ -142,6 +142,12 @@ export default function ProfileScreen() {
   const [authUserId, setAuthUserId] = useState<string | null>(null);
   const [userRow, setUserRow] = useState<UserRow | null>(null);
   const details = userRow?.user_details ?? null;
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [profileStats, setProfileStats] = useState({
+    attendance: 0,
+    ministries: 0,
+    givingTotal: 0,
+  });
 
   const displayName = useMemo(() => buildFullName(details), [details]);
   const displayEmail = useMemo(() => {
@@ -159,6 +165,55 @@ export default function ProfileScreen() {
     const url = toProfilePicUrl(details?.photo_path);
     return url || null;
   }, [details?.photo_path]);
+
+  const loadProfileStats = useCallback(async (userId: number) => {
+    setStatsLoading(true);
+    try {
+      const givingFilter = (q: any) =>
+        q.or(
+          "donation_id.not.is.null,transaction_type.ilike.%giving%,transaction_type.ilike.%donation%,transaction_type.ilike.%tithe%",
+        );
+
+      const [attendanceRes, ministriesRes, givingRes] = await Promise.all([
+        supabase
+          .from("event_attendance")
+          .select("attendance_id", { count: "exact" })
+          .eq("user_id", userId)
+          .eq("attendance_counted", true),
+        supabase
+          .from("user_ministries")
+          .select("user_id", { count: "exact" })
+          .eq("user_id", userId)
+          .eq("status", "Active"),
+        givingFilter(
+          supabase
+            .from("transactions")
+            .select("amount")
+            .eq("created_by", userId),
+        ),
+      ]);
+
+      const attendanceCount = attendanceRes.count ?? 0;
+      const ministriesCount = ministriesRes.count ?? 0;
+      const givingTotal =
+        (givingRes.data ?? []).reduce(
+          (sum: number, g: { amount?: number | null }) =>
+            sum + Number(g.amount ?? 0),
+          0,
+        ) ?? 0;
+
+      setProfileStats({
+        attendance: attendanceCount,
+        ministries: ministriesCount,
+        givingTotal,
+      });
+    } catch (e) {
+      console.error("Profile stats load failed:", e);
+      setProfileStats({ attendance: 0, ministries: 0, givingTotal: 0 });
+    } finally {
+      setStatsLoading(false);
+    }
+  }, []);
 
   const profileMenuItems = [
     {
@@ -654,6 +709,11 @@ export default function ProfileScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!userRow?.user_id) return;
+    loadProfileStats(userRow.user_id);
+  }, [userRow?.user_id, loadProfileStats]);
+
   return (
     <View style={{ flex: 1, backgroundColor: "#fff" }}>
       <ScrollView
@@ -791,17 +851,21 @@ export default function ProfileScreen() {
               <View style={styles.statsGrid}>
                 <View style={[styles.statCard, { borderColor: primary }]}>
                   <Text style={[styles.statNumber, { color: primary }]}>
-                    12
+                    {statsLoading ? "—" : profileStats.attendance}
                   </Text>
                   <Text style={styles.statLabel}>Attendance</Text>
                 </View>
                 <View style={[styles.statCard, { borderColor: primary }]}>
-                  <Text style={[styles.statNumber, { color: primary }]}>1</Text>
+                  <Text style={[styles.statNumber, { color: primary }]}>
+                    {statsLoading ? "—" : profileStats.ministries}
+                  </Text>
                   <Text style={styles.statLabel}>Ministries</Text>
                 </View>
                 <View style={[styles.statCard, { borderColor: primary }]}>
                   <Text style={[styles.statNumber, { color: primary }]}>
-                    ₱2.5k
+                    {statsLoading
+                      ? "—"
+                      : `₱${profileStats.givingTotal.toLocaleString()}`}
                   </Text>
                   <Text style={styles.statLabel}>Giving</Text>
                 </View>

@@ -2,11 +2,11 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../src/lib/supabaseClient";
@@ -18,7 +18,10 @@ export default function FamilyScreen() {
 
   useEffect(() => {
     (async () => {
-      const { data, error } = await supabase.from("ui_settings").select("*").single();
+      const { data, error } = await supabase
+        .from("ui_settings")
+        .select("*")
+        .single();
       if (error) console.error("❌ Branding fetch error:", error);
       else setBranding(data);
     })();
@@ -29,10 +32,34 @@ export default function FamilyScreen() {
 
   // Sample family members data
   const familyMembers = [
-    { id: 1, name: "Maria Grace Doe", relationship: "Spouse", status: "Active Member", joinDate: "2020-03-15" },
-    { id: 2, name: "James Doe Jr.", relationship: "Son", status: "Youth Group", joinDate: "2022-01-10" },
-    { id: 3, name: "Sarah Doe", relationship: "Daughter", status: "Children's Ministry", joinDate: "2021-06-20" },
-    { id: 4, name: "Robert Doe Sr.", relationship: "Father", status: "Active Member", joinDate: "2015-07-05" },
+    {
+      id: 1,
+      name: "Maria Grace Doe",
+      relationship: "Spouse",
+      status: "Active Member",
+      joinDate: "2020-03-15",
+    },
+    {
+      id: 2,
+      name: "James Doe Jr.",
+      relationship: "Son",
+      status: "Youth Group",
+      joinDate: "2022-01-10",
+    },
+    {
+      id: 3,
+      name: "Sarah Doe",
+      relationship: "Daughter",
+      status: "Children's Ministry",
+      joinDate: "2021-06-20",
+    },
+    {
+      id: 4,
+      name: "Robert Doe Sr.",
+      relationship: "Father",
+      status: "Active Member",
+      joinDate: "2015-07-05",
+    },
   ];
 
   return (
@@ -46,7 +73,10 @@ export default function FamilyScreen() {
         <View style={styles.headerLeft} />
         <Text style={styles.headerTitle}>Family Members</Text>
         <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.iconButton} onPress={() => router.push("/Member-User/family")}>
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={() => router.push("/Member-User/family")}
+          >
             <Ionicons name="people-outline" size={26} color="#fff" />
           </TouchableOpacity>
         </View>
@@ -64,16 +94,28 @@ export default function FamilyScreen() {
         {/* Family Members List */}
         <View style={styles.section}>
           {familyMembers.map((member) => (
-            <View key={member.id} style={[styles.familyCard, { borderLeftColor: secondary }]}>
+            <View
+              key={member.id}
+              style={[styles.familyCard, { borderLeftColor: secondary }]}
+            >
               <View style={styles.memberCardContent}>
-                <View style={[styles.memberAvatar, { backgroundColor: `${secondary}15` }]}>
+                <View
+                  style={[
+                    styles.memberAvatar,
+                    { backgroundColor: `${secondary}15` },
+                  ]}
+                >
                   <Ionicons name="person-circle" size={48} color={secondary} />
                 </View>
                 <View style={styles.memberInfo}>
                   <Text style={styles.memberName}>{member.name}</Text>
-                  <Text style={styles.memberRelationship}>{member.relationship}</Text>
+                  <Text style={styles.memberRelationship}>
+                    {member.relationship}
+                  </Text>
                   <Text style={styles.memberStatus}>{member.status}</Text>
-                  <Text style={styles.memberJoinDate}>Member since {member.joinDate}</Text>
+                  <Text style={styles.memberJoinDate}>
+                    Member since {member.joinDate}
+                  </Text>
                 </View>
               </View>
             </View>

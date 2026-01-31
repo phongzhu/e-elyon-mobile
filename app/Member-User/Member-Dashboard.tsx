@@ -9,8 +9,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Animated,
-  Dimensions,
   Image,
+  Linking,
   Modal,
   Platform,
   ScrollView,
@@ -18,6 +18,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -26,8 +27,6 @@ import { RRule } from "rrule";
 import { supabase } from "../../src/lib/supabaseClient";
 import CounselingRequest from "./counseling_request";
 import MemberNavbar from "./member-navbar";
-
-const { width } = Dimensions.get("window");
 
 // Keep a per-session flag so we only prompt once after login until the app is restarted or the user logs out.
 let hasPromptedLocationThisSession = false;
@@ -201,6 +200,7 @@ const AttendanceView = ({ branding }: { branding: any }) => {
       .from("users")
       .select(`user_id, users_details:users_details (branch_id)`)
       .eq("auth_user_id", authUserId)
+      .ilike("role", "member")
       .order("updated_at", { ascending: false })
       .limit(1);
 
@@ -227,19 +227,20 @@ const AttendanceView = ({ branding }: { branding: any }) => {
         return;
       }
 
-      // Assumption: attendance table with event details
+      // Assumption: event_attendance table with event details
       const { data, error } = await supabase
-        .from("attendance")
+        .from("event_attendance")
         .select(
           `
           attendance_id,
-          attendance_date,
-          status,
+          attended_at,
+          attendance_counted,
+          check_in_method,
           event:events (title, cover_image_path)
         `,
         )
         .eq("user_id", u.user_id)
-        .order("attendance_date", { ascending: false })
+        .order("attended_at", { ascending: false })
         .limit(20);
 
       if (error) throw error;
@@ -247,11 +248,9 @@ const AttendanceView = ({ branding }: { branding: any }) => {
       const records = (data ?? []).map((record: any) => ({
         id: record.attendance_id,
         title: record.event?.title || "Event",
-        date: record.attendance_date
-          ? formatDateLong(record.attendance_date)
-          : "",
-        status: record.status || "Present",
-        statusColor: record.status === "Present" ? "#66BB6A" : "#999",
+        date: record.attended_at ? formatDateLong(record.attended_at) : "",
+        status: record.attendance_counted ? "Present" : "Recorded",
+        statusColor: record.attendance_counted ? "#66BB6A" : "#999",
         image: record.event?.cover_image_path
           ? supabase.storage
               .from("church-event")
@@ -543,13 +542,140 @@ const AttendanceView = ({ branding }: { branding: any }) => {
   );
 };
 
-const GivingView = ({ branding }: { branding: any }) => (
-  <View style={{ padding: 16 }}>
-    <Text style={styles.filterEmptyText}>
-      Giving information will appear here
-    </Text>
-  </View>
-);
+const GivingView = ({ branding }: { branding: any }) => {
+  const [loading, setLoading] = useState(false);
+  const [givingRecords, setGivingRecords] = useState<any[]>([]);
+  const givingFilter = (q: any) =>
+    q.or(
+      "donation_id.not.is.null,transaction_type.ilike.%giving%,transaction_type.ilike.%donation%,transaction_type.ilike.%tithe%",
+    );
+
+  const getAppUser = async (): Promise<{ user_id: number } | null> => {
+    const { data: auth } = await supabase.auth.getUser();
+    const authUserId = auth?.user?.id;
+    if (!authUserId) return null;
+
+    const { data, error } = await supabase
+      .from("users")
+      .select("user_id")
+      .eq("auth_user_id", authUserId)
+      .order("updated_at", { ascending: false })
+      .limit(1);
+
+    if (error) {
+      console.error("❌ getAppUser error:", error);
+      return null;
+    }
+
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row?.user_id) return null;
+    return { user_id: row.user_id };
+  };
+
+  const loadGivingRecords = async () => {
+    setLoading(true);
+    try {
+      const u = await getAppUser();
+      if (!u) {
+        setGivingRecords([]);
+        return;
+      }
+
+      const q = supabase
+        .from("transactions")
+        .select(
+          `
+          transaction_id,
+          amount,
+          status,
+          transaction_date,
+          notes,
+          transaction_type
+        `,
+        )
+        .eq("created_by", u.user_id)
+        .order("transaction_date", { ascending: false })
+        .limit(20);
+
+      const { data, error } = await givingFilter(q);
+      if (error) throw error;
+
+      const records = (data ?? []).map((row: any) => ({
+        id: row.transaction_id,
+        amount: row.amount ?? 0,
+        status: row.status || "Completed",
+        date: row.transaction_date ? formatDateLong(row.transaction_date) : "",
+        notes: row.notes || row.transaction_type || "Donation",
+        raw: row,
+      }));
+
+      setGivingRecords(records);
+    } catch (e) {
+      console.error("❌ loadGivingRecords failed:", e);
+      setGivingRecords([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadGivingRecords();
+  }, []);
+
+  return (
+    <View style={{ padding: 16 }}>
+      {loading ? (
+        <Text style={styles.filterEmptyText}>Loading giving records...</Text>
+      ) : givingRecords.length === 0 ? (
+        <Text style={styles.filterEmptyText}>No giving records found</Text>
+      ) : (
+        givingRecords.map((record) => (
+          <View key={record.id} style={styles.givingCard}>
+            <View style={styles.givingRow}>
+              <View style={styles.givingIconWrap}>
+                <Ionicons name="cash" size={18} color="#2f6b3f" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.givingAmount}>
+                  ₱{Number(record.amount).toLocaleString()}
+                </Text>
+                <Text style={styles.givingDate}>{record.date}</Text>
+                <Text style={styles.givingNotes} numberOfLines={2}>
+                  {record.notes}
+                </Text>
+              </View>
+              <View
+                style={[
+                  styles.givingStatusBadge,
+                  {
+                    backgroundColor:
+                      String(record.status).toLowerCase() === "completed"
+                        ? "#E8F5E9"
+                        : "#F5F5F5",
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.givingStatusText,
+                    {
+                      color:
+                        String(record.status).toLowerCase() === "completed"
+                          ? "#2e7d32"
+                          : "#777",
+                    },
+                  ]}
+                >
+                  {record.status}
+                </Text>
+              </View>
+            </View>
+          </View>
+        ))
+      )}
+    </View>
+  );
+};
 
 const MinistryView = ({ branding }: { branding: any }) => (
   <View style={{ padding: 16 }}>
@@ -1100,8 +1226,46 @@ const ResourcesView = ({ branding }: { branding: any }) => {
   );
 };
 
+const AnimatedCard = ({
+  children,
+  delay = 0,
+}: {
+  children: React.ReactNode;
+  delay?: number;
+}) => {
+  const [anim] = useState(new Animated.Value(0));
+
+  useEffect(() => {
+    Animated.timing(anim, {
+      toValue: 1,
+      duration: 500,
+      delay,
+      useNativeDriver: true,
+    }).start();
+  }, [anim, delay]);
+
+  return (
+    <Animated.View
+      style={{
+        opacity: anim,
+        transform: [
+          {
+            translateY: anim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [20, 0],
+            }),
+          },
+        ],
+      }}
+    >
+      {children}
+    </Animated.View>
+  );
+};
+
 export default function MemberDashboard() {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
   const [branding, setBranding] = useState<any>(null);
   const [searchFocused, setSearchFocused] = useState(false);
   const [showQRModal, setShowQRModal] = useState(false);
@@ -1115,18 +1279,20 @@ export default function MemberDashboard() {
   const [qrSvg, setQrSvg] = useState("");
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const [openCounselingForm, setOpenCounselingForm] = useState(false);
-  const [locationWatcher, setLocationWatcher] =
-    useState<Location.LocationSubscription | null>(null);
+  const [showAllAnnouncements, setShowAllAnnouncements] = useState(false);
   const [hasGeoAttendanceRecorded, setHasGeoAttendanceRecorded] =
     useState(false);
   const fadeAnim = useState(new Animated.Value(0))[0];
   const slideAnim = useState(new Animated.Value(30))[0];
   const scrollY = useRef(new Animated.Value(0)).current;
+  const locationSubRef = useRef<Location.LocationSubscription | null>(null);
+  const webWatchIdRef = useRef<number | null>(null);
 
   const [events, setEvents] = useState<UnifiedEvent[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
-  const [notifLoading, setNotifLoading] = useState(false);
+  const [ytAnnouncements, setYtAnnouncements] = useState<any[]>([]);
+  // notifications loading state is not rendered; keep local logic simple
 
   // Summary stats state
   const [summaryStats, setSummaryStats] = useState({
@@ -1229,11 +1395,11 @@ export default function MemberDashboard() {
         const bId = pickBranchId(appUserRow?.users_details);
 
         let bmIds: number[] = [];
-        if (uId) {
+        if (authUserId) {
           const { data: ums } = await supabase
             .from("user_ministries")
             .select("branch_ministry_id")
-            .eq("user_id", uId)
+            .eq("auth_user_id", authUserId)
             .eq("status", "Active");
           bmIds = (ums ?? [])
             .map((x: any) => x.branch_ministry_id)
@@ -1242,16 +1408,53 @@ export default function MemberDashboard() {
 
         await loadEventsForMember(bId, bmIds);
         await loadNotifications();
+        const { data: ytData, error: ytErr } = await supabase.functions.invoke(
+          "refresh_youtube_announcements",
+          {
+            body: { maxResults: 10, persist: true },
+          },
+        );
+        console.log("YT refresh result:", ytData);
+        console.log("YT refresh error:", ytErr);
+        await loadYoutubeAnnouncements();
         await loadSummaryStats(); // Load summary stats after events are loaded
       } catch (e) {
         console.error("❌ Failed loading member events:", e);
         setEvents([]);
       }
 
-      // Show permission prompt once per session after login
-      if (!hasPromptedLocationThisSession) {
-        setShowLocationModal(true);
-        hasPromptedLocationThisSession = true;
+      try {
+        const storedPref = await AsyncStorage.getItem(
+          "location_permission_enabled",
+        );
+        let permissionGranted = false;
+
+        if (Platform.OS === "web") {
+          if ("permissions" in navigator && "query" in navigator.permissions) {
+            const result = await navigator.permissions.query({
+              name: "geolocation" as any,
+            });
+            permissionGranted = result.state === "granted";
+          } else {
+            permissionGranted = storedPref === "true";
+          }
+        } else {
+          const { status } = await Location.getForegroundPermissionsAsync();
+          permissionGranted = status === "granted";
+        }
+
+        if (permissionGranted) {
+          if (storedPref !== "true") {
+            await AsyncStorage.setItem("location_permission_enabled", "true");
+          }
+        } else if (!hasPromptedLocationThisSession) {
+          if (storedPref !== "false") {
+            setShowLocationModal(true);
+            hasPromptedLocationThisSession = true;
+          }
+        }
+      } catch (e) {
+        console.error("âŒ Location permission check failed:", e);
       }
     })();
 
@@ -1268,14 +1471,6 @@ export default function MemberDashboard() {
       }),
     ]).start();
   }, [fadeAnim, slideAnim]);
-
-  useEffect(() => {
-    return () => {
-      if (locationWatcher) {
-        locationWatcher.remove();
-      }
-    };
-  }, [locationWatcher]);
 
   const toRadians = (deg: number) => (deg * Math.PI) / 180;
 
@@ -1299,7 +1494,6 @@ export default function MemberDashboard() {
   };
 
   const loadNotifications = async () => {
-    setNotifLoading(true);
     try {
       const { data: auth } = await supabase.auth.getUser();
       const authUserId = auth?.user?.id;
@@ -1349,7 +1543,33 @@ export default function MemberDashboard() {
       console.error("❌ loadNotifications failed:", e);
       setNotifications([]);
     } finally {
-      setNotifLoading(false);
+    }
+  };
+
+  const loadYoutubeAnnouncements = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("youtube_announcements")
+        .select("video_id,title,url,published_at,thumbnail_url,author_name")
+        .order("published_at", { ascending: false })
+        .limit(10);
+
+      if (error) throw error;
+
+      setYtAnnouncements(
+        (data ?? []).map((v: any) => ({
+          key: `yt-${v.video_id}`,
+          type: "youtube",
+          title: v.title,
+          url: v.url,
+          published_at: v.published_at,
+          thumbnail_url: v.thumbnail_url,
+          author_name: v.author_name,
+        })),
+      );
+    } catch (e) {
+      console.error("❌ loadYoutubeAnnouncements failed:", e);
+      setYtAnnouncements([]);
     }
   };
 
@@ -1364,6 +1584,7 @@ export default function MemberDashboard() {
         .from("users")
         .select(`user_id, users_details:users_details (branch_id)`)
         .eq("auth_user_id", authUserId)
+        .ilike("role", "member")
         .order("updated_at", { ascending: false })
         .limit(1);
 
@@ -1376,55 +1597,145 @@ export default function MemberDashboard() {
       const now = new Date();
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
       const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      monthEnd.setHours(23, 59, 59, 999);
       const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
       const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+      lastMonthEnd.setHours(23, 59, 59, 999);
 
       // Load attendance count for current month
       let attendanceCount = 0;
       let lastMonthCount = 0;
       try {
         const { data: attendanceData } = await supabase
-          .from("attendance")
+          .from("event_attendance")
           .select("attendance_id")
           .eq("user_id", userId)
-          .gte("attendance_date", monthStart.toISOString())
-          .lte("attendance_date", monthEnd.toISOString());
+          .gte("attended_at", monthStart.toISOString())
+          .lte("attended_at", monthEnd.toISOString());
         attendanceCount = attendanceData?.length ?? 0;
 
         const { data: lastAttendanceData } = await supabase
-          .from("attendance")
+          .from("event_attendance")
           .select("attendance_id")
           .eq("user_id", userId)
-          .gte("attendance_date", lastMonthStart.toISOString())
-          .lte("attendance_date", lastMonthEnd.toISOString());
+          .gte("attended_at", lastMonthStart.toISOString())
+          .lte("attended_at", lastMonthEnd.toISOString());
         lastMonthCount = lastAttendanceData?.length ?? 0;
       } catch (e) {
         console.error("❌ Attendance query failed:", e);
       }
 
-      // Load giving total for current month
+      // Load giving total for current month (transactions table)
       let givingTotal = 0;
       try {
-        const { data: givingData } = await supabase
-          .from("giving")
-          .select("amount")
-          .eq("user_id", userId)
-          .gte("date_given", monthStart.toISOString())
-          .lte("date_given", monthEnd.toISOString());
+        const givingFilter = (q: any) =>
+          q.or(
+            "donation_id.not.is.null,transaction_type.ilike.%giving%,transaction_type.ilike.%donation%,transaction_type.ilike.%tithe%",
+          );
+
+        const q = supabase
+          .from("transactions")
+          .select("amount, created_by, transaction_date, donation_id")
+          .eq("created_by", userId)
+          .gte("transaction_date", monthStart.toISOString())
+          .lte("transaction_date", monthEnd.toISOString());
+        const { data: givingData } = await givingFilter(q);
         givingTotal =
-          givingData?.reduce((sum, g) => sum + (g.amount ?? 0), 0) ?? 0;
+          givingData?.reduce(
+            (sum: number, g: { amount?: number | null }) =>
+              sum + Number(g.amount ?? 0),
+            0,
+          ) ?? 0;
       } catch (e) {
         console.error("❌ Giving query failed:", e);
       }
 
-      // Find next service/event
+      // Find next service/event (live from DB)
       let nextService = "No upcoming services";
       try {
-        const upcomingEvents = events.filter(
-          (e) => new Date(e.start_datetime) >= now,
-        );
-        if (upcomingEvents.length > 0) {
-          const next = upcomingEvents[0];
+        let bmIds: number[] = [];
+        if (authUserId) {
+          const { data: ums } = await supabase
+            .from("user_ministries")
+            .select("branch_ministry_id")
+            .eq("auth_user_id", authUserId)
+            .eq("status", "Active");
+          bmIds = (ums ?? [])
+            .map((x: any) => x.branch_ministry_id)
+            .filter(Boolean);
+        }
+
+        const statuses = ["Scheduled", "Published", "Active", "Approved"];
+        let openEventsQuery = supabase
+          .from("events")
+          .select("event_id, start_datetime")
+          .in("status", statuses)
+          .eq("is_open_for_all", true)
+          .gte("start_datetime", now.toISOString())
+          .order("start_datetime", { ascending: true })
+          .limit(5);
+
+        if (branchId !== null && branchId !== undefined) {
+          openEventsQuery = openEventsQuery.or(
+            `branch_id.eq.${branchId},branch_id.is.null`,
+          );
+        } else {
+          openEventsQuery = openEventsQuery.is("branch_id", null);
+        }
+
+        const { data: openEvents } = await openEventsQuery;
+
+        let targetedEvents: any[] = [];
+        if (bmIds.length > 0) {
+          const { data: aud } = await supabase
+            .from("event_audiences")
+            .select("event_id")
+            .in("branch_ministry_id", bmIds);
+
+          const targetedEventIds = Array.from(
+            new Set((aud ?? []).map((a: any) => a.event_id)),
+          ).filter(Boolean);
+
+          let targetedQuery = supabase
+            .from("events")
+            .select("event_id, start_datetime")
+            .in("status", statuses)
+            .gte("start_datetime", now.toISOString())
+            .order("start_datetime", { ascending: true })
+            .limit(5);
+
+          if (targetedEventIds.length > 0) {
+            targetedQuery = targetedQuery.in("event_id", targetedEventIds);
+          } else {
+            targetedQuery = targetedQuery.in("branch_ministry_id", bmIds);
+          }
+
+          const { data: targeted } = await targetedQuery;
+          targetedEvents = targeted ?? [];
+
+          if (targetedEventIds.length > 0) {
+            const { data: direct } = await supabase
+              .from("events")
+              .select("event_id, start_datetime")
+              .in("branch_ministry_id", bmIds)
+              .in("status", statuses)
+              .gte("start_datetime", now.toISOString())
+              .order("start_datetime", { ascending: true })
+              .limit(5);
+            targetedEvents = [...targetedEvents, ...(direct ?? [])];
+          }
+        }
+
+        const allCandidates = [...(openEvents ?? []), ...targetedEvents]
+          .filter((e) => e?.start_datetime)
+          .sort(
+            (a, b) =>
+              new Date(a.start_datetime).getTime() -
+              new Date(b.start_datetime).getTime(),
+          );
+
+        if (allCandidates.length > 0) {
+          const next = allCandidates[0];
           const eventDate = new Date(next.start_datetime);
           const dayOfWeek = eventDate.toLocaleDateString("en-US", {
             weekday: "long",
@@ -1505,45 +1816,56 @@ export default function MemberDashboard() {
           new Set((aud ?? []).map((a: any) => a.event_id)),
         ).filter(Boolean);
 
+        let targetedQuery = supabase
+          .from("events")
+          .select("*")
+          .in("status", statuses)
+          .order("start_datetime", { ascending: true });
+
         if (targetedEventIds.length > 0) {
-          let targetedQuery = supabase
+          targetedQuery = targetedQuery.in("event_id", targetedEventIds);
+        } else {
+          targetedQuery = targetedQuery.in("branch_ministry_id", bmIds);
+        }
+
+        const { data: e2, error: e2Err } = await targetedQuery;
+        if (e2Err) throw e2Err;
+        targetedEvents = e2 ?? [];
+
+        if (targetedEventIds.length > 0) {
+          const { data: directEvents, error: directErr } = await supabase
             .from("events")
             .select("*")
             .in("status", statuses)
-            .in("event_id", targetedEventIds)
+            .in("branch_ministry_id", bmIds)
             .order("start_datetime", { ascending: true });
-
-          // if your targeted events are always within the branch, keep this; otherwise allow NULL too
-          if (branchId !== null)
-            targetedQuery = targetedQuery.or(
-              `branch_id.eq.${branchId},branch_id.is.null`,
-            );
-          else targetedQuery = targetedQuery.is("branch_id", null);
-
-          const { data: e2, error: e2Err } = await targetedQuery;
-          if (e2Err) throw e2Err;
-          targetedEvents = e2 ?? [];
+          if (directErr) throw directErr;
+          targetedEvents = [...targetedEvents, ...(directEvents ?? [])];
         }
       }
 
-      const singles: UnifiedEvent[] = [
-        ...(openEvents ?? []),
-        ...(targetedEvents ?? []),
-      ].map((ev: any) => ({
-        key: `event-${ev.event_id}`,
-        source: "single",
-        event_id: ev.event_id,
-        title: ev.title,
-        description: ev.description ?? null,
-        event_type: ev.event_type ?? null,
-        location: ev.location ?? null,
-        start_datetime: ev.start_datetime,
-        end_datetime: ev.end_datetime,
-        cover_image_path: ev.cover_image_path ?? null,
-        branch_id: ev.branch_id ?? null,
-        is_open_for_all: !!ev.is_open_for_all,
-        status: ev.status ?? null,
-      }));
+      const uniqSinglesMap = new Map<number, any>();
+      [...(openEvents ?? []), ...(targetedEvents ?? [])].forEach((ev: any) => {
+        if (ev?.event_id != null) uniqSinglesMap.set(ev.event_id, ev);
+      });
+
+      const singles: UnifiedEvent[] = Array.from(uniqSinglesMap.values()).map(
+        (ev: any) => ({
+          key: `event-${ev.event_id}`,
+          source: "single",
+          event_id: ev.event_id,
+          title: ev.title,
+          description: ev.description ?? null,
+          event_type: ev.event_type ?? null,
+          location: ev.location ?? null,
+          start_datetime: ev.start_datetime,
+          end_datetime: ev.end_datetime,
+          cover_image_path: ev.cover_image_path ?? null,
+          branch_id: ev.branch_id ?? null,
+          is_open_for_all: !!ev.is_open_for_all,
+          status: ev.status ?? null,
+        }),
+      );
 
       // ---------- B) Recurring series (event_series table) ----------
       // Open-to-all series: branch-specific OR global (branch_id is null)
@@ -1579,7 +1901,7 @@ export default function MemberDashboard() {
         ).filter(Boolean);
 
         if (seriesIds.length > 0) {
-          let targetedSeriesQuery = supabase
+          const { data: ts, error: tsErr } = await supabase
             .from("event_series")
             .select("*")
             .eq("is_active", true)
@@ -1587,13 +1909,6 @@ export default function MemberDashboard() {
             .in("status", ["Approved", "Active", "Published"])
             .order("starts_on", { ascending: true });
 
-          if (branchId !== null)
-            targetedSeriesQuery = targetedSeriesQuery.or(
-              `branch_id.eq.${branchId},branch_id.is.null`,
-            );
-          else targetedSeriesQuery = targetedSeriesQuery.is("branch_id", null);
-
-          const { data: ts, error: tsErr } = await targetedSeriesQuery;
           if (tsErr) throw tsErr;
           targetedSeries = ts ?? [];
         }
@@ -1601,7 +1916,9 @@ export default function MemberDashboard() {
 
       const allSeries = [...(openSeries ?? []), ...(targetedSeries ?? [])];
       const uniqSeriesMap = new Map<number, any>();
-      allSeries.forEach((s: any) => uniqSeriesMap.set(s.series_id, s));
+      allSeries.forEach((s: any) => {
+        if (s?.series_id != null) uniqSeriesMap.set(s.series_id, s);
+      });
       const uniqSeries = Array.from(uniqSeriesMap.values());
 
       // Expand to occurrences (e.g., next 90 days)
@@ -1631,10 +1948,54 @@ export default function MemberDashboard() {
     }
   };
 
+  const stopGeofenceWatcher = () => {
+    if (Platform.OS === "web" && webWatchIdRef.current != null) {
+      navigator.geolocation.clearWatch(webWatchIdRef.current);
+      webWatchIdRef.current = null;
+    }
+
+    try {
+      locationSubRef.current?.remove?.();
+    } catch (e) {
+      console.warn("native watcher remove failed:", e);
+    } finally {
+      locationSubRef.current = null;
+    }
+  };
+
   const startGeofenceWatcher = async () => {
     try {
-      if (locationWatcher) {
-        locationWatcher.remove();
+      stopGeofenceWatcher();
+
+      if (Platform.OS === "web") {
+        if (!("geolocation" in navigator)) {
+          console.warn("Geolocation not available in this browser.");
+          return;
+        }
+
+        webWatchIdRef.current = navigator.geolocation.watchPosition(
+          (pos) => {
+            const { latitude, longitude } = pos.coords;
+            const distance = distanceInMeters(
+              latitude,
+              longitude,
+              eventGeofence.latitude,
+              eventGeofence.longitude,
+            );
+
+            if (
+              distance <= eventGeofence.radiusMeters &&
+              !hasGeoAttendanceRecorded
+            ) {
+              setHasGeoAttendanceRecorded(true);
+              setShowGeoAttendanceModal(true);
+            }
+          },
+          (err) => console.warn("web geolocation error:", err),
+          { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 },
+        );
+
+        return;
       }
 
       const subscription = await Location.watchPositionAsync(
@@ -1662,16 +2023,48 @@ export default function MemberDashboard() {
         },
       );
 
-      setLocationWatcher(subscription);
+      locationSubRef.current = subscription;
     } catch (err) {
       console.error("Error starting geofence watcher:", err);
     }
   };
 
+  useEffect(() => {
+    return () => stopGeofenceWatcher();
+  }, []);
+
   const generateQR = async () => {
     try {
+      const { data: auth } = await supabase.auth.getUser();
+      const authUserId = auth?.user?.id;
+      if (!authUserId) {
+        Alert.alert("QR Code", "Please log in to generate your QR code.");
+        return;
+      }
+
+      const { data: userRow, error: userErr } = await supabase
+        .from("users")
+        .select("user_id")
+        .eq("auth_user_id", authUserId)
+        .eq("role", "member")
+        .maybeSingle();
+
+      if (userErr || !userRow?.user_id) {
+        Alert.alert(
+          "QR Code",
+          "Unable to resolve your member profile. Please contact admin.",
+        );
+        return;
+      }
+
       const timestamp = new Date().toISOString();
-      const qrData = JSON.stringify({ type: "check-in", timestamp });
+      const qrData = JSON.stringify({
+        type: "check-in",
+        v: 1,
+        user_id: userRow.user_id,
+        auth_user_id: authUserId,
+        timestamp,
+      });
 
       const svg = await new Promise<string>((resolve, reject) => {
         QRCode.toString(
@@ -1694,26 +2087,23 @@ export default function MemberDashboard() {
   const handleLocationPermission = async (enable: boolean) => {
     try {
       if (enable) {
+        if (Platform.OS === "web") {
+          await AsyncStorage.setItem("location_permission_enabled", "true");
+          await startGeofenceWatcher();
+          setShowLocationModal(false);
+          return;
+        }
+
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status === "granted") {
           await AsyncStorage.setItem("location_permission_enabled", "true");
-          startGeofenceWatcher();
-
-          // Close location modal first
-          setShowLocationModal(false);
-
-          // Show attendance detected modal after a brief delay
-          setTimeout(() => {
-            setShowGeoAttendanceModal(true);
-          }, 400);
-          return;
+          await startGeofenceWatcher();
         }
+        setShowLocationModal(false);
+        return;
       } else {
         await AsyncStorage.setItem("location_permission_enabled", "false");
-        if (locationWatcher) {
-          locationWatcher.remove();
-        }
-        setLocationWatcher(null);
+        stopGeofenceWatcher();
         setHasGeoAttendanceRecorded(false);
       }
 
@@ -1726,6 +2116,8 @@ export default function MemberDashboard() {
 
   const primary = branding?.primary_color || "#064622";
   const secondary = branding?.secondary_color || "#319658";
+  const announcementCardWidth = Math.max(windowWidth - 80, 240);
+  const eventCardWidth = Math.max(windowWidth - 100, 240);
   const logo = branding?.logo_icon
     ? branding.logo_icon.startsWith("http")
       ? branding.logo_icon
@@ -1745,44 +2137,23 @@ export default function MemberDashboard() {
     extrapolate: "clamp",
   });
 
-  const AnimatedCard = ({ children, delay = 0 }: any) => {
-    const [anim] = useState(new Animated.Value(0));
-
-    useEffect(() => {
-      Animated.timing(anim, {
-        toValue: 1,
-        duration: 500,
-        delay,
-        useNativeDriver: true,
-      }).start();
-    }, [anim, delay]);
-
-    return (
-      <Animated.View
-        style={{
-          opacity: anim,
-          transform: [
-            {
-              translateY: anim.interpolate({
-                inputRange: [0, 1],
-                outputRange: [20, 0],
-              }),
-            },
-          ],
-        }}
-      >
-        {children}
-      </Animated.View>
-    );
-  };
-
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
 
   const upcomingEvents = events.filter(
     (e) => new Date(e.start_datetime) >= startOfToday,
   );
-  const announcements = upcomingEvents.slice(0, 2);
+  const videoAnnouncements = (
+    showAllAnnouncements ? ytAnnouncements : ytAnnouncements.slice(0, 6)
+  )
+    .map((v) => ({
+      key: v.key,
+      type: "youtube" as const,
+      v,
+      date: v.published_at,
+    }))
+    .filter((item) => !!item.date)
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   const upcomingCards = upcomingEvents.slice(0, 6);
 
   const openEventDetails = (eventId: number | undefined) => {
@@ -2121,13 +2492,6 @@ export default function MemberDashboard() {
                 </Text>
               </View>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.iconButton}
-              onPress={() => router.push("/Member-User/profile")}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="person-circle-outline" size={28} color="#fff" />
-            </TouchableOpacity>
           </View>
         </View>
 
@@ -2177,7 +2541,6 @@ export default function MemberDashboard() {
             {[
               { icon: "calendar-outline", label: "Attendance" },
               { icon: "help-circle-outline", label: "Counseling" },
-              { icon: "library-outline", label: "Resources" },
             ].map((a, idx) => (
               <TouchableOpacity
                 key={idx}
@@ -2196,9 +2559,7 @@ export default function MemberDashboard() {
                 onPress={() => {
                   const nextFilter = activeFilter === a.label ? null : a.label;
                   setActiveFilter(nextFilter);
-                  if (nextFilter === "Counseling") {
-                    setOpenCounselingForm(true);
-                  } else {
+                  if (nextFilter !== "Counseling") {
                     setOpenCounselingForm(false);
                   }
                 }}
@@ -2256,9 +2617,6 @@ export default function MemberDashboard() {
             />
           )}
           {activeFilter === "Events" && <EventsView branding={branding} />}
-          {activeFilter === "Resources" && (
-            <ResourcesView branding={branding} />
-          )}
         </ScrollView>
       ) : (
         <Animated.ScrollView
@@ -2393,7 +2751,7 @@ export default function MemberDashboard() {
                     <Ionicons name="time" size={16} color={secondary} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.summaryFooterLabel}>Next Service</Text>
+                    <Text style={styles.summaryFooterLabel}>Next Event</Text>
                     <Text style={styles.summaryFooterText}>
                       {summaryLoading ? "Loading..." : summaryStats.nextService}
                     </Text>
@@ -2441,23 +2799,27 @@ export default function MemberDashboard() {
           <AnimatedCard delay={300}>
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
-                <Text style={[styles.sectionTitle, { color: "#1a1a1a" }]}>
+                <View
+                  style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+                >
                   <Ionicons name="megaphone" size={18} color={primary} />
-                  &nbsp; &nbsp;Announcements
-                </Text>
+                  <Text style={[styles.sectionTitle, { color: "#1a1a1a" }]}>
+                    Announcements
+                  </Text>
+                </View>
                 <TouchableOpacity
                   activeOpacity={0.7}
-                  onPress={() => setActiveFilter("Events")}
+                  onPress={() => setShowAllAnnouncements((prev) => !prev)}
                 >
                   <Text style={[styles.seeAll, { color: primary }]}>
-                    See All →
+                    {showAllAnnouncements ? "Show Less" : "See All"} {"->"}
                   </Text>
                 </TouchableOpacity>
               </View>
 
               {eventsLoading ? (
-                <Text style={{ color: "#666" }}>Loading announcements…</Text>
-              ) : announcements.length === 0 ? (
+                <Text style={{ color: "#666" }}>Loading announcements...</Text>
+              ) : videoAnnouncements.length === 0 ? (
                 <Text style={{ color: "#666" }}>No announcements yet.</Text>
               ) : (
                 <ScrollView
@@ -2466,26 +2828,30 @@ export default function MemberDashboard() {
                   style={styles.announcementScroll}
                   contentContainerStyle={{ paddingRight: 16 }}
                 >
-                  {announcements.map((ev) => {
-                    const img = getEventImageUrl(ev.cover_image_path);
+                  {videoAnnouncements.map((item) => {
+                    const v = item.v;
                     return (
                       <TouchableOpacity
-                        key={ev.key}
+                        key={item.key}
                         style={[
                           styles.announcementCard,
                           {
+                            width: announcementCardWidth,
                             backgroundColor: "#ffffff",
                             borderColor: "#e0e0e0",
                             borderWidth: 1.5,
                           },
                         ]}
                         activeOpacity={0.9}
-                        onPress={() => openEventDetails(ev.event_id)}
-                        disabled={!ev.event_id}
+                        onPress={() => {
+                          if (v?.url) {
+                            Linking.openURL(v.url);
+                          }
+                        }}
                       >
-                        {img ? (
+                        {v?.thumbnail_url ? (
                           <Image
-                            source={{ uri: img }}
+                            source={{ uri: v.thumbnail_url }}
                             style={styles.announcementImage}
                             resizeMode="cover"
                           />
@@ -2501,7 +2867,7 @@ export default function MemberDashboard() {
                             ]}
                           >
                             <Text style={{ color: "#999", fontSize: 12 }}>
-                              No Image
+                              No Thumbnail
                             </Text>
                           </View>
                         )}
@@ -2511,16 +2877,16 @@ export default function MemberDashboard() {
                             <View
                               style={[
                                 styles.announcementBadge,
-                                { backgroundColor: `${secondary}20` },
+                                { backgroundColor: "rgba(255,0,0,0.12)" },
                               ]}
                             >
                               <Text
                                 style={[
                                   styles.announcementBadgeText,
-                                  { color: secondary },
+                                  { color: "#cc0000" },
                                 ]}
                               >
-                                EVENT
+                                VIDEO
                               </Text>
                             </View>
                           </View>
@@ -2532,14 +2898,14 @@ export default function MemberDashboard() {
                             ]}
                             numberOfLines={2}
                           >
-                            {ev.title}
+                            {v?.title || "YouTube Announcement"}
                           </Text>
 
                           <View style={styles.announcementFooter}>
                             <Ionicons
-                              name="calendar-outline"
+                              name="logo-youtube"
                               size={14}
-                              color="#666"
+                              color="#cc0000"
                             />
                             <Text
                               style={[
@@ -2547,7 +2913,9 @@ export default function MemberDashboard() {
                                 { color: "#666" },
                               ]}
                             >
-                              {formatDateLong(ev.start_datetime)}
+                              {v?.published_at
+                                ? formatDateLong(v.published_at)
+                                : ""}
                             </Text>
                           </View>
                         </View>
@@ -2573,16 +2941,16 @@ export default function MemberDashboard() {
                 </View>
                 <TouchableOpacity
                   activeOpacity={0.7}
-                  onPress={() => setActiveFilter("Events")}
+                  onPress={() => router.push("/Member-User/events")}
                 >
                   <Text style={[styles.seeAll, { color: primary }]}>
-                    See All →
+                    See All {"->"}
                   </Text>
                 </TouchableOpacity>
               </View>
 
               {eventsLoading ? (
-                <Text style={{ color: "#666" }}>Loading events…</Text>
+                <Text style={{ color: "#666" }}>Loading events...</Text>
               ) : upcomingCards.length === 0 ? (
                 <Text style={{ color: "#666" }}>No upcoming events.</Text>
               ) : (
@@ -2600,6 +2968,7 @@ export default function MemberDashboard() {
                         style={[
                           styles.eventCard,
                           {
+                            width: eventCardWidth,
                             backgroundColor: "#ffffff",
                             borderColor: "#e0e0e0",
                             borderWidth: 1.5,
@@ -2905,15 +3274,6 @@ export default function MemberDashboard() {
         </Animated.ScrollView>
       )}
 
-      {/* Floating QR Button */}
-      <TouchableOpacity
-        style={[styles.fabQR, { backgroundColor: primary }]}
-        onPress={generateQR}
-        activeOpacity={0.85}
-      >
-        <Ionicons name="qr-code" size={28} color="#fff" />
-      </TouchableOpacity>
-
       <MemberNavbar />
     </View>
   );
@@ -3027,11 +3387,56 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#FFFFFF",
   },
+  givingCard: {
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e6ece6",
+    backgroundColor: "#fff",
+    marginBottom: 12,
+  },
+  givingRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  givingIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: "#eef3ec",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  givingAmount: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#1f2a1f",
+  },
+  givingDate: {
+    marginTop: 4,
+    fontSize: 12,
+    color: "#5b6b5b",
+  },
+  givingNotes: {
+    marginTop: 6,
+    fontSize: 12,
+    color: "#3b463b",
+  },
+  givingStatusBadge: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  givingStatusText: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
   announcementScroll: {
     marginRight: -16,
   },
   announcementCard: {
-    width: width - 80,
     marginRight: 12,
     borderRadius: 14,
     overflow: "hidden",
@@ -3086,7 +3491,6 @@ const styles = StyleSheet.create({
     marginRight: -16,
   },
   eventCard: {
-    width: width - 100,
     marginRight: 12,
     borderRadius: 14,
     overflow: "hidden",
@@ -3146,24 +3550,23 @@ const styles = StyleSheet.create({
   },
   calendarWeekRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     marginBottom: 8,
-    paddingHorizontal: 6,
   },
   calendarWeekDay: {
     color: "#666666",
     fontSize: 12,
     fontWeight: "700",
-    width: (width - 64) / 7,
+    flexBasis: "14.2857%",
+    maxWidth: "14.2857%",
     textAlign: "center",
   },
   calendarGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    justifyContent: "space-between",
   },
   calendarCell: {
-    width: (width - 64) / 7,
+    flexBasis: "14.2857%",
+    maxWidth: "14.2857%",
     height: 40,
     alignItems: "center",
     justifyContent: "center",

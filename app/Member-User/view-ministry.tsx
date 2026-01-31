@@ -3,6 +3,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -19,6 +20,8 @@ const fmtDateTime = (v?: string | null) => {
   return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString();
 };
 
+const isHttpUrl = (s?: string | null) => !!s && /^https?:\/\//i.test(s);
+
 export default function ViewMinistryScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams();
@@ -29,6 +32,7 @@ export default function ViewMinistryScreen() {
   const [err, setErr] = useState("");
   const [ministry, setMinistry] = useState<any>(null);
   const [activities, setActivities] = useState<any[]>([]);
+  const [members, setMembers] = useState<any[]>([]);
 
   useEffect(() => {
     (async () => {
@@ -54,19 +58,122 @@ export default function ViewMinistryScreen() {
           .single();
         if (bmErr) throw bmErr;
 
-        const { data: acts, error: aErr } = await supabase
-          .from("ministry_activities")
-          .select(
-            "activity_id, branch_ministry_id, title, description, location, planned_start, planned_end, status, head_auth_user_id, created_at",
-          )
-          .eq("branch_ministry_id", bmId)
-          .eq("status", "Published")
-          .order("planned_start", { ascending: true });
-        if (aErr) throw aErr;
+        let acts: any[] = [];
+        let mergedMembers: any[] = [];
+
+        const { data: rpcActs, error: rpcActsErr } = await supabase.rpc(
+          "rpc_member_ministry_activities",
+          { p_branch_ministry_id: bmId },
+        );
+        if (!rpcActsErr && Array.isArray(rpcActs)) {
+          acts = rpcActs;
+        } else {
+          const selectActivities = `
+            activity_id, branch_ministry_id, title, description, location, planned_start, planned_end, status, head_auth_user_id, created_at,
+            event:events(title, start_datetime, end_datetime, location),
+            series:event_series(title, starts_on, ends_on, start_time, end_time, location)
+          `;
+
+          const { data: directActs, error: aErr } = await supabase
+            .from("ministry_activities")
+            .select(selectActivities)
+            .eq("branch_ministry_id", bmId)
+            .neq("status", "Draft")
+            .order("planned_start", { ascending: true });
+          if (aErr) throw aErr;
+
+          const { data: aud, error: audErr } = await supabase
+            .from("ministry_activity_audiences")
+            .select("activity_id")
+            .eq("branch_ministry_id", bmId);
+          if (audErr) throw audErr;
+
+          let audienceActs: any[] = [];
+          const activityIds = Array.from(
+            new Set((aud ?? []).map((x: any) => x.activity_id)),
+          ).filter(Boolean);
+          if (activityIds.length > 0) {
+            const { data: audActs, error: audActsErr } = await supabase
+              .from("ministry_activities")
+              .select(selectActivities)
+              .in("activity_id", activityIds)
+              .neq("status", "Draft")
+              .order("planned_start", { ascending: true });
+            if (audActsErr) throw audActsErr;
+            audienceActs = audActs ?? [];
+          }
+
+          const actsMap = new Map<number, any>();
+          [...(directActs ?? []), ...(audienceActs ?? [])].forEach((a: any) => {
+            if (a?.activity_id != null) actsMap.set(a.activity_id, a);
+          });
+          acts = Array.from(actsMap.values());
+          acts.sort(
+            (x: any, y: any) =>
+              new Date(x?.planned_start || 0).getTime() -
+              new Date(y?.planned_start || 0).getTime(),
+          );
+        }
+
+        const { data: rpcMembers, error: rpcMembersErr } = await supabase.rpc(
+          "rpc_member_ministry_members",
+          { p_branch_ministry_id: bmId },
+        );
+        if (!rpcMembersErr && Array.isArray(rpcMembers)) {
+          mergedMembers = rpcMembers;
+        } else {
+          const { data: memRows, error: memErr } = await supabase
+            .from("user_ministries")
+            .select("auth_user_id, role, status, user:users(user_id, users_details_id)")
+            .eq("branch_ministry_id", bmId)
+            .eq("status", "Active");
+          if (memErr) throw memErr;
+
+          mergedMembers = memRows ?? [];
+          const detailIds = (memRows ?? [])
+            .map((m: any) =>
+              Array.isArray(m.user) ? m.user?.[0]?.users_details_id : m.user?.users_details_id,
+            )
+            .filter(Boolean);
+
+          if (detailIds.length > 0) {
+            const { data: profiles, error: profErr } = await supabase
+              .from("users_details")
+              .select("user_details_id, first_name, middle_name, last_name, suffix, photo_path")
+              .in("user_details_id", detailIds);
+            if (profErr) throw profErr;
+
+            const profileMap = new Map(
+              (profiles ?? []).map((p: any) => [p.user_details_id, p]),
+            );
+            mergedMembers = (memRows ?? []).map((m: any) => {
+              const udId = Array.isArray(m.user)
+                ? m.user?.[0]?.users_details_id
+                : m.user?.users_details_id;
+              return {
+                ...m,
+                profile: profileMap.get(udId) || null,
+              };
+            });
+          }
+        }
+
+        const normalizedMembers = (mergedMembers || []).map((m: any) => {
+          if (m?.profile) return m;
+          const profile = {
+            first_name: m.first_name,
+            middle_name: m.middle_name,
+            last_name: m.last_name,
+            suffix: m.suffix,
+            photo_path: m.photo_path,
+          };
+          return { ...m, profile };
+        });
 
         if (!cancelled) {
           setMinistry(bm);
           setActivities(acts || []);
+          setMembers(normalizedMembers);
         }
       } catch (e: any) {
         if (!cancelled) setErr(e?.message || "Failed to load ministry.");
@@ -96,7 +203,7 @@ export default function ViewMinistryScreen() {
       >
         <TouchableOpacity
           style={styles.iconButton}
-          onPress={() => router.back()}
+          onPress={() => router.replace("/Member-User/ministry")}
         >
           <Ionicons name="arrow-back" size={22} color="#fff" />
         </TouchableOpacity>
@@ -133,6 +240,54 @@ export default function ViewMinistryScreen() {
             </View>
 
             <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Members</Text>
+              {members.length === 0 ? (
+                <Text style={{ color: "#666" }}>
+                  No members found for this ministry.
+                </Text>
+              ) : (
+                members.map((m: any) => {
+                  const p = m.profile || {};
+                  const fullName = [
+                    p.first_name,
+                    p.middle_name,
+                    p.last_name,
+                    p.suffix,
+                  ]
+                    .filter(Boolean)
+                    .join(" ");
+                  const avatarUrl = p.photo_path
+                    ? isHttpUrl(p.photo_path)
+                      ? p.photo_path
+                      : supabase.storage
+                          .from("profile_pics")
+                          .getPublicUrl(p.photo_path).data.publicUrl
+                    : null;
+                  return (
+                    <View key={m.auth_user_id} style={styles.memberRow}>
+                      {avatarUrl ? (
+                        <Image
+                          source={{ uri: avatarUrl }}
+                          style={styles.memberAvatar}
+                        />
+                      ) : (
+                        <View style={styles.memberAvatar} />
+                      )}
+                      <View style={styles.memberInfo}>
+                        <Text style={styles.memberName}>
+                          {fullName || "Member"}
+                        </Text>
+                        {m.role ? (
+                          <Text style={styles.memberMeta}>{m.role}</Text>
+                        ) : null}
+                      </View>
+                    </View>
+                  );
+                })
+              )}
+            </View>
+
+            <View style={styles.section}>
               <Text style={styles.sectionTitle}>Activities</Text>
               {activities.length === 0 ? (
                 <Text style={{ color: "#666" }}>
@@ -140,18 +295,29 @@ export default function ViewMinistryScreen() {
                 </Text>
               ) : (
                 activities.map((a) => {
+                  const start =
+                    a.planned_start ||
+                    a.event?.start_datetime ||
+                    a.series?.starts_on ||
+                    null;
+                  const end =
+                    a.planned_end ||
+                    a.event?.end_datetime ||
+                    a.series?.ends_on ||
+                    null;
+                  const location =
+                    a.location || a.event?.location || a.series?.location;
                   return (
                     <View key={a.activity_id} style={styles.activityCard}>
                       <Text style={{ fontWeight: "800", color: "#111" }}>
-                        {a.title}
+                        {a.title || a.event?.title || a.series?.title || "Activity"}
                       </Text>
                       <Text style={{ color: "#666", marginTop: 4 }}>
-                        {fmtDateTime(a.planned_start)} -{" "}
-                        {fmtDateTime(a.planned_end)}
+                        {fmtDateTime(start)} - {fmtDateTime(end)}
                       </Text>
-                      {a.location ? (
+                      {location ? (
                         <Text style={{ color: "#666", marginTop: 4 }}>
-                          {a.location}
+                          {location}
                         </Text>
                       ) : null}
                       {a.description ? (
@@ -215,5 +381,35 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e6e9e6",
     marginBottom: 12,
+  },
+  memberRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#e6e9e6",
+    marginBottom: 10,
+  },
+  memberAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#e9eeeb",
+  },
+  memberInfo: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  memberName: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#111",
+  },
+  memberMeta: {
+    marginTop: 2,
+    fontSize: 12,
+    color: "#6b6b6b",
   },
 });

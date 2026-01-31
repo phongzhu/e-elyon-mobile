@@ -3,13 +3,15 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
-    Alert,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Alert,
+  Image,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { supabase } from "../../src/lib/supabaseClient";
 import QRNavbar from "./qr-navbar";
@@ -20,9 +22,143 @@ export default function QRDashboard() {
   const [scanned, setScanned] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const [showSettings, setShowSettings] = useState(false);
+  const [stats, setStats] = useState({ attendees: 0, events: 0 });
+  const [recentActivities, setRecentActivities] = useState<any[]>([]);
+  const [branches, setBranches] = useState<{ id: number; name: string }[]>(
+    [],
+  );
 
   const primary = branding?.primary_color || "#064622";
   const secondary = branding?.secondary_color || "#0C8A43";
+  const toEventImageUrl = (path?: string | null) => {
+    if (!path) return null;
+    if (path.startsWith("http")) return path;
+    return supabase.storage.from("church-event").getPublicUrl(path).data
+      .publicUrl;
+  };
+  const formatTimeRange = (
+    startIso?: string | null,
+    endIso?: string | null,
+  ) => {
+    if (!startIso && !endIso) return "";
+    const fmt = (iso?: string | null) =>
+      iso
+        ? new Date(iso).toLocaleTimeString("en-US", {
+            hour: "numeric",
+            minute: "2-digit",
+          })
+        : "";
+    if (startIso && endIso) return `${fmt(startIso)} - ${fmt(endIso)}`;
+    return fmt(startIso ?? endIso);
+  };
+  const pickBranchId = (usersDetails: any): number | null => {
+    if (!usersDetails) return null;
+    if (Array.isArray(usersDetails)) {
+      return usersDetails.length > 0
+        ? (usersDetails[0]?.branch_id ?? null)
+        : null;
+    }
+    return usersDetails?.branch_id ?? null;
+  };
+
+  const loadBranches = async () => {
+    const { data, error } = await supabase
+      .from("branches")
+      .select("branch_id, name")
+      .order("name", { ascending: true });
+
+    if (error) {
+      console.error("loadBranches error:", error);
+      setBranches([]);
+      return;
+    }
+
+    const rows = (data ?? []).map((b: any) => ({
+      id: b.branch_id,
+      name: b.name ?? "Branch",
+    }));
+    rows.sort((a, b) => a.name.localeCompare(b.name));
+    setBranches(rows);
+  };
+
+  const getQrBranchId = async () => {
+    const { data: auth } = await supabase.auth.getUser();
+    const authUserId = auth?.user?.id;
+    if (!authUserId) return null;
+
+    const { data, error } = await supabase
+      .from("users")
+      .select("user_id, role, users_details:users_details(branch_id)")
+      .eq("auth_user_id", authUserId)
+      .in("role", ["QR_MEMBER", "QR-MEMBER"])
+      .maybeSingle();
+
+    if (error) {
+      console.error("QR branch resolve error:", error);
+      return null;
+    }
+
+    return pickBranchId(data?.users_details);
+  };
+
+  const resolveMemberUserId = async (payload: any) => {
+    if (payload?.user_id) return Number(payload.user_id);
+
+    const authUserId = payload?.auth_user_id;
+    if (authUserId) {
+      const { data, error } = await supabase
+        .from("users")
+        .select("user_id")
+        .eq("auth_user_id", authUserId)
+        .eq("role", "member")
+        .maybeSingle();
+      if (!error && data?.user_id) return Number(data.user_id);
+    }
+
+    const userCode = payload?.user_code;
+    if (userCode) {
+      const { data, error } = await supabase
+        .from("users_details")
+        .select("user_details_id, auth_user_id")
+        .eq("user_code", userCode)
+        .maybeSingle();
+      if (error || !data?.auth_user_id) return null;
+      const { data: userRow } = await supabase
+        .from("users")
+        .select("user_id")
+        .eq("auth_user_id", data.auth_user_id)
+        .eq("role", "member")
+        .maybeSingle();
+      return userRow?.user_id ? Number(userRow.user_id) : null;
+    }
+
+    return null;
+  };
+
+  const resolveActiveEventId = async (branchId: number | null) => {
+    const nowIso = new Date().toISOString();
+    let q = supabase
+      .from("events")
+      .select("event_id, title, start_datetime, end_datetime, branch_id")
+      .in("status", ["Scheduled", "Published", "Active", "Approved"])
+      .lte("start_datetime", nowIso)
+      .gte("end_datetime", nowIso)
+      .order("start_datetime", { ascending: false })
+      .limit(1);
+
+    if (branchId !== null) {
+      q = q.or(`branch_id.eq.${branchId},branch_id.is.null`);
+    } else {
+      q = q.is("branch_id", null);
+    }
+
+    const { data, error } = await q.maybeSingle();
+    if (error) {
+      console.error("resolveActiveEventId error:", error);
+      return null;
+    }
+    return data?.event_id ? Number(data.event_id) : null;
+  };
 
   useEffect(() => {
     (async () => {
@@ -36,9 +172,104 @@ export default function QRDashboard() {
         setBranding(data);
       }
     })();
+    loadBranches();
+  }, [branches]);
+
+  const loadStats = async () => {
+    try {
+      const branchId = await getQrBranchId();
+      const nowIso = new Date().toISOString();
+      const monthStart = new Date();
+      monthStart.setDate(1);
+      monthStart.setHours(0, 0, 0, 0);
+
+      let eventsQuery = supabase
+        .from("events")
+        .select("event_id", { count: "exact", head: true })
+        .in("status", ["Scheduled", "Published", "Active", "Approved"])
+        .gte("start_datetime", monthStart.toISOString())
+        .lte("start_datetime", nowIso);
+
+      if (branchId !== null) {
+        eventsQuery = eventsQuery.or(
+          `branch_id.eq.${branchId},branch_id.is.null`,
+        );
+      } else {
+        eventsQuery = eventsQuery.is("branch_id", null);
+      }
+
+      const { count: eventsCount } = await eventsQuery;
+
+      let attendeesCount = 0;
+      if (branchId !== null) {
+        const { count } = await supabase
+          .from("event_attendance")
+          .select("attendance_id, event:events!inner(branch_id)", {
+            count: "exact",
+            head: true,
+          })
+          .gte("attended_at", monthStart.toISOString())
+          .lte("attended_at", nowIso)
+          .in("check_in_method", ["qr", "QR"])
+          .or(`event.branch_id.eq.${branchId},event.branch_id.is.null`);
+        attendeesCount = count ?? 0;
+      } else {
+        const { count } = await supabase
+          .from("event_attendance")
+          .select("attendance_id", { count: "exact", head: true })
+          .gte("attended_at", monthStart.toISOString())
+          .lte("attended_at", nowIso)
+          .in("check_in_method", ["qr", "QR"]);
+        attendeesCount = count ?? 0;
+      }
+
+      setStats({
+        attendees: attendeesCount ?? 0,
+        events: eventsCount ?? 0,
+      });
+
+      const { data: recent } = await supabase
+        .from("event_attendance")
+        .select(
+          "attendance_id, attended_at, event:events(title, branch_id, start_datetime, end_datetime, cover_image_path, branches(name)), user:users(user_details:users_details(first_name,last_name,branch_id))",
+        )
+        .in("check_in_method", ["qr", "QR"])
+        .order("attended_at", { ascending: false })
+        .limit(5);
+
+      const recentRows = (recent ?? []).map((r: any) => ({
+        id: r.attendance_id,
+        title: r.event?.title || "Event",
+        time: formatTimeRange(r.event?.start_datetime, r.event?.end_datetime),
+        member:
+          [r.user?.user_details?.first_name, r.user?.user_details?.last_name]
+            .filter(Boolean)
+            .join(" ")
+            .trim() || "Member",
+        branch: (() => {
+          const derivedBranchId =
+            r.event?.branch_id ?? r.user?.user_details?.branch_id ?? null;
+          return (
+            r.event?.branches?.name ||
+            branches.find((b) => b.id === derivedBranchId)?.name ||
+            "Unknown"
+          );
+        })(),
+        imageUrl: toEventImageUrl(r.event?.cover_image_path),
+        icon: "qr-code" as const,
+      }));
+
+      setRecentActivities(recentRows);
+    } catch (e) {
+      console.error("QR dashboard stats error:", e);
+    }
+  };
+
+  useEffect(() => {
+    loadStats();
   }, []);
 
-  const handleBarCodeScanned = ({
+  const handleBarCodeScanned = async ({
     type,
     data,
   }: {
@@ -47,8 +278,82 @@ export default function QRDashboard() {
   }) => {
     setScanned(true);
     setShowScanner(false);
-    // Handle scanned QR code data here
-    // You can add logic to process the attendance based on the scanned data
+
+    let payload: any = null;
+    try {
+      payload = JSON.parse(data);
+    } catch {
+      Alert.alert("Invalid QR", "This QR code is not valid.");
+      return;
+    }
+
+    if (!payload || payload.type !== "check-in") {
+      Alert.alert("Invalid QR", "This QR code is not a check-in code.");
+      return;
+    }
+
+    const memberUserId = await resolveMemberUserId(payload);
+    if (!memberUserId) {
+      Alert.alert(
+        "Invalid QR",
+        "Unable to identify the member. Please regenerate the QR code.",
+      );
+      return;
+    }
+
+    const branchId = await getQrBranchId();
+    const eventId = payload?.event_id
+      ? Number(payload.event_id)
+      : await resolveActiveEventId(branchId);
+
+    if (!eventId) {
+      Alert.alert("No Active Event", "No ongoing event found for this branch.");
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const { error } = await supabase.from("event_attendance").upsert(
+      {
+        event_id: eventId,
+        user_id: memberUserId,
+        check_in_method: "qr",
+        attended_at: nowIso,
+        attendance_counted: true,
+        attendance_duration_minutes: 0,
+      },
+      { onConflict: "event_id,user_id" },
+    );
+
+    if (error) {
+      console.error("QR attendance insert error:", error);
+      Alert.alert(
+        "Attendance",
+        error.message || "Failed to record attendance.",
+      );
+      return;
+    }
+
+    const { error: rsvpError } = await supabase.from("event_rsvp").upsert(
+      {
+        event_id: eventId,
+        user_id: memberUserId,
+        attended: true,
+      },
+      { onConflict: "event_id,user_id" },
+    );
+
+    if (rsvpError) {
+      console.error("QR RSVP update error:", rsvpError);
+      Alert.alert(
+        "Attendance",
+        rsvpError.message || "Attendance recorded, but RSVP update failed.",
+      );
+      loadStats();
+      return;
+    }
+
+    loadStats();
+    Alert.alert("Attendance", "Attendance recorded via QR.");
   };
 
   const openScanner = async () => {
@@ -62,17 +367,23 @@ export default function QRDashboard() {
     setShowScanner(true);
   };
 
-  const recentActivities = [
-    {
-      id: 1,
-      title: "Sunday Service",
-      time: "10:00 AM",
-      icon: "calendar" as const,
-    },
-    { id: 2, title: "Bible Study", time: "11:30 AM", icon: "book" as const },
-  ];
+  const performLogout = async () => {
+    setShowSettings(false);
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {
+      console.error("logout failed:", e);
+    } finally {
+      router.replace("/login");
+    }
+  };
 
   const handleLogout = async () => {
+    if (Platform.OS === "web") {
+      await performLogout();
+      return;
+    }
+
     Alert.alert("Logout", "Are you sure you want to logout?", [
       {
         text: "Cancel",
@@ -81,10 +392,7 @@ export default function QRDashboard() {
       {
         text: "Logout",
         style: "destructive",
-        onPress: async () => {
-          await supabase.auth.signOut();
-          router.replace("/login");
-        },
+        onPress: performLogout,
       },
     ]);
   };
@@ -109,35 +417,57 @@ export default function QRDashboard() {
             style={[styles.statCard, { backgroundColor: `${secondary}20` }]}
           >
             <Text style={styles.statLabel}>Total Attendees</Text>
-            <Text style={[styles.statValue, { color: primary }]}>1,234</Text>
+            <Text style={[styles.statValue, { color: primary }]}>
+              {stats.attendees}
+            </Text>
           </View>
           <View
             style={[styles.statCard, { backgroundColor: `${secondary}20` }]}
           >
             <Text style={styles.statLabel}>Events</Text>
-            <Text style={[styles.statValue, { color: primary }]}>5</Text>
+            <Text style={[styles.statValue, { color: primary }]}>
+              {stats.events}
+            </Text>
           </View>
         </View>
 
         {/* Recent Activity */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Recent Activity</Text>
-          {recentActivities.map((activity) => (
-            <View key={activity.id} style={styles.activityItem}>
-              <View
-                style={[
-                  styles.activityIcon,
-                  { backgroundColor: `${secondary}20` },
-                ]}
-              >
-                <Ionicons name={activity.icon} size={24} color={secondary} />
+          {recentActivities.length === 0 ? (
+            <Text style={styles.activityTime}>No recent activity yet.</Text>
+          ) : (
+            recentActivities.map((activity) => (
+              <View key={activity.id} style={styles.activityItem}>
+                {activity.imageUrl ? (
+                  <Image
+                    source={{ uri: activity.imageUrl }}
+                    style={styles.activityThumb}
+                  />
+                ) : (
+                  <View
+                    style={[
+                      styles.activityIcon,
+                      { backgroundColor: `${secondary}20` },
+                    ]}
+                  >
+                    <Ionicons
+                      name={activity.icon}
+                      size={24}
+                      color={secondary}
+                    />
+                  </View>
+                )}
+                <View style={styles.activityInfo}>
+                  <Text style={styles.activityTitle}>{activity.title}</Text>
+                  <Text style={styles.activityMeta}>
+                    {activity.member} • {activity.branch}
+                  </Text>
+                  <Text style={styles.activityTime}>{activity.time}</Text>
+                </View>
               </View>
-              <View style={styles.activityInfo}>
-                <Text style={styles.activityTitle}>{activity.title}</Text>
-                <Text style={styles.activityTime}>{activity.time}</Text>
-              </View>
-            </View>
-          ))}
+            ))
+          )}
         </View>
 
         <View style={{ height: 100 }} />
@@ -301,6 +631,13 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 12,
   },
+  activityThumb: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    marginRight: 12,
+    backgroundColor: "#e6ece8",
+  },
   activityIcon: {
     width: 48,
     height: 48,
@@ -316,6 +653,12 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "700",
     color: "#000",
+    marginBottom: 4,
+  },
+  activityMeta: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#666",
     marginBottom: 4,
   },
   activityTime: {

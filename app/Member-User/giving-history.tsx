@@ -1,4 +1,4 @@
-import { Ionicons } from "@expo/vector-icons";
+﻿import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import {
@@ -10,46 +10,117 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Svg, {
+  Circle,
+  Polyline,
+  Stop,
+  LinearGradient as SvgLinearGradient,
+} from "react-native-svg";
 import { supabase } from "../../src/lib/supabaseClient";
 
-
 type GivingRecord = {
-  id: number;
-  title: string;
-  date: string;
-  amount: string;
-  channel: "Onsite" | "Online";
-  activity: string;
-};
-
-export const recordsByTab: Record<string, GivingRecord[]> = {
-  Tithes: [
-    { id: 1, title: "Tithes", date: "October 20, 2024", amount: "₱1,500", channel: "Onsite", activity: "1st Sunday Service" },
-    { id: 2, title: "Tithes", date: "September 15, 2024", amount: "₱1,200", channel: "Online", activity: "2nd Sunday Service" },
-    { id: 3, title: "Tithes", date: "August 5, 2024", amount: "₱1,800", channel: "Onsite", activity: "Church Anniversary" },
-    { id: 4, title: "Tithes", date: "July 12, 2024", amount: "₱1,300", channel: "Online", activity: "Midweek Service" },
-    { id: 5, title: "Tithes", date: "June 28, 2024", amount: "₱1,600", channel: "Onsite", activity: "1st Sunday Service" },
-  ],
-  Offering: [
-    { id: 6, title: "Offering", date: "October 6, 2024", amount: "₱950", channel: "Online", activity: "Youth Service" },
-    { id: 7, title: "Offering", date: "September 29, 2024", amount: "₱700", channel: "Onsite", activity: "Mission Sunday" },
-  ],
-  Designations: [
-    { id: 8, title: "Designations", date: "September 10, 2024", amount: "₱1,050", channel: "Online", activity: "Building Fund" },
-    { id: 9, title: "Designations", date: "August 18, 2024", amount: "₱850", channel: "Onsite", activity: "Community Outreach" },
-  ],
+  transaction_id: number;
+  transaction_type: string | null;
+  transaction_date: string | null;
+  amount: number | null;
+  notes: string | null;
 };
 
 export default function GivingHistoryScreen() {
   const insets = useSafeAreaInsets();
   const [branding, setBranding] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState("Tithes");
+  const [records, setRecords] = useState<GivingRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [monthlyTotals, setMonthlyTotals] = useState<number[]>(
+    Array.from({ length: 12 }, () => 0),
+  );
+
+  const resolveUserId = async () => {
+    const { data: auth } = await supabase.auth.getUser();
+    const uid = auth?.user?.id;
+    if (!uid) return null;
+
+    const { data, error } = await supabase
+      .from("users")
+      .select("user_id, role")
+      .eq("auth_user_id", uid)
+      .eq("role", "member")
+      .maybeSingle();
+
+    if (error) {
+      console.error("resolveUserId error:", error);
+      return null;
+    }
+    return data?.user_id ?? null;
+  };
+
+  const loadGivingHistory = async (uidNum: number) => {
+    const givingFilter = (q: any) =>
+      q.or(
+        "donation_id.not.is.null,transaction_type.ilike.%giving%,transaction_type.ilike.%donation%,transaction_type.ilike.%tithe%",
+      );
+
+    const q = supabase
+      .from("transactions")
+      .select(
+        "transaction_id, amount, transaction_date, notes, transaction_type",
+      )
+      .eq("created_by", uidNum)
+      .order("transaction_date", { ascending: false });
+
+    const { data, error } = await givingFilter(q);
+    if (error) console.error("loadGivingHistory error:", error);
+    setRecords((data as GivingRecord[]) || []);
+  };
+
+  const loadGivingTrends = async (uidNum: number) => {
+    const givingFilter = (q: any) =>
+      q.or(
+        "donation_id.not.is.null,transaction_type.ilike.%giving%,transaction_type.ilike.%donation%,transaction_type.ilike.%tithe%",
+      );
+
+    const now = new Date();
+    const yearStart = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+
+    const q = supabase
+      .from("transactions")
+      .select("amount, transaction_date")
+      .eq("created_by", uidNum)
+      .gte("transaction_date", yearStart.toISOString())
+      .lte("transaction_date", now.toISOString());
+
+    const { data, error } = await givingFilter(q);
+    if (error) console.error("loadGivingTrends error:", error);
+
+    const totals = Array.from({ length: 12 }, () => 0);
+    (data ?? []).forEach((r: any) => {
+      const d = r.transaction_date ? new Date(r.transaction_date) : null;
+      if (!d) return;
+      const monthIndex =
+        (d.getFullYear() - yearStart.getFullYear()) * 12 +
+        (d.getMonth() - yearStart.getMonth());
+      if (monthIndex >= 0 && monthIndex < 12) {
+        totals[monthIndex] += Number(r.amount ?? 0);
+      }
+    });
+    setMonthlyTotals(totals);
+  };
 
   useEffect(() => {
     (async () => {
-      const { data, error } = await supabase.from("ui_settings").select("*").single();
-      if (error) console.error("❌ Branding fetch error:", error);
+      const { data, error } = await supabase
+        .from("ui_settings")
+        .select("*")
+        .single();
+      if (error) console.error("branding fetch error:", error);
       else setBranding(data);
+
+      const uidNum = await resolveUserId();
+      if (uidNum) {
+        await loadGivingHistory(uidNum);
+        await loadGivingTrends(uidNum);
+      }
+      setLoading(false);
     })();
   }, []);
 
@@ -58,10 +129,42 @@ export default function GivingHistoryScreen() {
   const logo = branding?.logo_icon
     ? branding.logo_icon.startsWith("http")
       ? branding.logo_icon
-      : supabase.storage.from("logos").getPublicUrl(branding.logo_icon).data.publicUrl
+      : supabase.storage.from("logos").getPublicUrl(branding.logo_icon).data
+          .publicUrl
     : null;
 
-  const records = useMemo(() => recordsByTab[activeTab] || [], [activeTab]);
+  const normalizeTypeLabel = (raw?: string | null) => {
+    if (!raw) return "Donation";
+    const lower = raw.toLowerCase();
+    if (lower.includes("tithe")) return "Donation";
+    return raw;
+  };
+
+  const rows = useMemo(() => records || [], [records]);
+  const last12Total = useMemo(
+    () => monthlyTotals.reduce((sum, v) => sum + v, 0),
+    [monthlyTotals],
+  );
+  const yearNow = new Date().getFullYear();
+
+  const sparkWidth = 320;
+  const sparkHeight = 60;
+  const sparkPoints = useMemo(() => {
+    const maxVal = Math.max(1, ...monthlyTotals);
+    const stepX = sparkWidth / (monthlyTotals.length - 1 || 1);
+    return monthlyTotals
+      .map((v, i) => {
+        const x = i * stepX;
+        const y = sparkHeight - (v / maxVal) * sparkHeight;
+        return `${x},${y}`;
+      })
+      .join(" ");
+  }, [monthlyTotals]);
+
+  const hasTrends = useMemo(
+    () => monthlyTotals.some((v) => v > 0),
+    [monthlyTotals],
+  );
 
   return (
     <View style={{ flex: 1, backgroundColor: "#fff" }}>
@@ -72,11 +175,18 @@ export default function GivingHistoryScreen() {
         ]}
       >
         <View style={styles.headerLeft}>
-          <TouchableOpacity style={styles.iconButton} onPress={() => router.back()}>
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={() => router.back()}
+          >
             <Ionicons name="arrow-back" size={22} color="#fff" />
           </TouchableOpacity>
           {logo ? (
-            <Image source={{ uri: logo }} style={styles.logo} resizeMode="contain" />
+            <Image
+              source={{ uri: logo }}
+              style={styles.logo}
+              resizeMode="contain"
+            />
           ) : (
             <View style={styles.logoPlaceholder} />
           )}
@@ -86,54 +196,98 @@ export default function GivingHistoryScreen() {
 
         <View style={styles.headerRight}>
           <TouchableOpacity style={styles.iconButton}>
-            <Ionicons name="download-outline" size={20} color="#fff" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.iconButton}>
             <Ionicons name="notifications-outline" size={20} color="#fff" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.iconButton} onPress={() => router.push("/Member-User/profile")}> 
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={() => router.push("/Member-User/profile")}
+          >
             <Ionicons name="person-circle-outline" size={24} color="#fff" />
           </TouchableOpacity>
         </View>
       </View>
 
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-        <View style={styles.tabsRow}>
-          {Object.keys(recordsByTab).map((tab) => {
-            const active = activeTab === tab;
+        <View style={styles.trendsSection}>
+          <Text style={styles.sectionTitle}>Giving Trends</Text>
+          <Text style={styles.amount}>₱{last12Total.toLocaleString()}</Text>
+          <Text style={[styles.subLabel, { color: secondary }]}>
+            Last 12 Months
+          </Text>
+
+          {hasTrends ? (
+            <>
+              <View style={styles.sparkWrap}>
+                <Svg
+                  width="100%"
+                  height={sparkHeight}
+                  viewBox={`0 0 ${sparkWidth} ${sparkHeight}`}
+                >
+                  <SvgLinearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
+                    <Stop offset="0" stopColor={secondary} stopOpacity="0.35" />
+                    <Stop offset="1" stopColor={secondary} stopOpacity="0" />
+                  </SvgLinearGradient>
+                  <Polyline
+                    points={sparkPoints}
+                    fill="none"
+                    stroke={secondary}
+                    strokeWidth="2"
+                  />
+                  {sparkPoints.split(" ").map((p, idx) => {
+                    const [x, y] = p.split(",").map(Number);
+                    const isLast = idx === sparkPoints.split(" ").length - 1;
+                    return (
+                      <Circle
+                        key={idx}
+                        cx={x}
+                        cy={y}
+                        r={isLast ? 3 : 2}
+                        fill={secondary}
+                      />
+                    );
+                  })}
+                </Svg>
+              </View>
+              <View style={styles.yearRow}>
+                <Text style={styles.yearText}>{yearNow - 2}</Text>
+                <Text style={styles.yearText}>{yearNow - 1}</Text>
+                <Text style={styles.yearText}>{yearNow}</Text>
+              </View>
+            </>
+          ) : (
+            <Text style={styles.emptyText}>No giving data yet.</Text>
+          )}
+        </View>
+
+        <Text style={[styles.sectionTitle, { marginTop: 16 }]}>Donations</Text>
+
+        {loading ? (
+          <Text style={styles.emptyText}>Loading records...</Text>
+        ) : rows.length === 0 ? (
+          <Text style={styles.emptyText}>No giving records yet.</Text>
+        ) : (
+          rows.map((item) => {
+            const title = normalizeTypeLabel(item.transaction_type);
+            const date = item.transaction_date
+              ? new Date(item.transaction_date).toLocaleDateString()
+              : "-";
+            const amount = `₱${Number(item.amount ?? 0).toLocaleString()}`;
+            const meta = item.notes ? item.notes : null;
+
             return (
-              <TouchableOpacity
-                key={tab}
-                style={[styles.tabItem, active && { borderBottomColor: primary }]}
-                onPress={() => setActiveTab(tab)}
-              >
-                <Text style={[styles.tabText, active && { color: primary }]}>{tab}</Text>
-              </TouchableOpacity>
+              <View key={item.transaction_id} style={styles.historyRow}>
+                <View>
+                  <Text style={styles.historyTitle}>{title}</Text>
+                  <Text style={styles.historySubtitle}>{date}</Text>
+                  {meta ? <Text style={styles.historyMeta}>{meta}</Text> : null}
+                </View>
+                <Text style={[styles.historyAmount, { color: secondary }]}>
+                  {amount}
+                </Text>
+              </View>
             );
-          })}
-        </View>
-
-        <View style={styles.filterRow}>
-          <TouchableOpacity style={styles.filterChip}>
-            <Text style={styles.filterText}>Date Range</Text>
-            <Ionicons name="chevron-down" size={14} color="#3c4a3c" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.filterChip}>
-            <Text style={styles.filterText}>Search</Text>
-            <Ionicons name="chevron-down" size={14} color="#3c4a3c" />
-          </TouchableOpacity>
-        </View>
-
-        {records.map((item) => (
-          <View key={item.id} style={styles.historyRow}>
-            <View>
-              <Text style={styles.historyTitle}>{item.title}</Text>
-              <Text style={styles.historySubtitle}>{item.date}</Text>
-              <Text style={styles.historyMeta}>{`${item.channel} • ${item.activity}`}</Text>
-            </View>
-            <Text style={[styles.historyAmount, { color: secondary }]}>{item.amount}</Text>
-          </View>
-        ))}
+          })
+        )}
 
         <View style={{ height: 24 }} />
       </ScrollView>
@@ -190,46 +344,49 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 16,
   },
-  tabsRow: {
-    flexDirection: "row",
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
-    marginTop: 12,
-    marginBottom: 16,
-  },
-  tabItem: {
-    flex: 1,
-    paddingBottom: 10,
-    borderBottomWidth: 2,
-    borderBottomColor: "transparent",
-    alignItems: "center",
-  },
-  tabText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#9aa59a",
-  },
-  filterRow: {
-    flexDirection: "row",
-    gap: 12,
-    marginBottom: 16,
-  },
-  filterChip: {
-    flex: 1,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+  trendsSection: {
+    marginTop: 16,
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 16,
     borderWidth: 1,
     borderColor: "#e0e0e0",
-    borderRadius: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: "#f5f5f5",
   },
-  filterText: {
-    fontSize: 12,
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#000",
+    marginBottom: 8,
+  },
+  amount: {
+    fontSize: 28,
+    fontWeight: "800",
+    color: "#000",
+    marginBottom: 4,
+  },
+  subLabel: {
+    fontSize: 13,
     fontWeight: "600",
-    color: "#3c4a3c",
+    marginBottom: 12,
+  },
+  sparkWrap: {
+    marginVertical: 12,
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+  yearRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  yearText: {
+    fontSize: 12,
+    color: "#666",
+    fontWeight: "500",
+  },
+  emptyText: {
+    fontSize: 12,
+    color: "#777",
+    marginTop: 8,
   },
   historyRow: {
     flexDirection: "row",

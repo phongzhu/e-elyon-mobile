@@ -1,9 +1,16 @@
+﻿// app/Member-User/give-online.tsx (or wherever your GiveOnlineScreen lives)
+
 import { Ionicons } from "@expo/vector-icons";
+import * as Linking from "expo-linking";
 import { router } from "expo-router";
-import React, { useEffect, useState } from "react";
+import * as WebBrowser from "expo-web-browser";
+import React, { useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   Image,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -12,30 +19,107 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { BankIcon, GcashIcon, MayaIcon } from "../../components/ui/wallet-icons";
+import {
+  BankIcon,
+  GcashIcon,
+  MayaIcon,
+} from "../../components/ui/wallet-icons";
 import { supabase } from "../../src/lib/supabaseClient";
 import MemberNavbar from "./member-navbar";
 
+type DonorNoteKey = "anonymous" | "family" | "individual";
+type WalletKey = "Maya" | "GCash" | "Bank";
+
+const parseAmountPHP = (raw: string) => {
+  const cleaned = String(raw || "").replace(/[^0-9.]/g, "");
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : 0;
+};
+
+// NOTE: PayMongo payment_method_types are strict.
+// If a method isn't enabled in your PayMongo account, the checkout can fail.
+// We DO NOT disable buttons; we just handle errors gracefully.
+const paymongoTypesForWallet = (wallet: WalletKey): string[] => {
+  switch (wallet) {
+    case "GCash":
+      return ["gcash"];
+    case "Maya":
+      return ["paymaya"]; // commonly used for Maya in PayMongo
+    case "Bank":
+      // This depends on your PayMongo enabled methods.
+      // If your account uses online banking/Dragonpay, it might be "dob".
+      // If this fails, your error handler will tell the user to use GCash/Maya for now.
+      return ["dob"];
+    default:
+      return ["gcash"];
+  }
+};
+
+const pickBranchId = (usersDetails: any): number | null => {
+  if (!usersDetails) return null;
+  if (Array.isArray(usersDetails)) {
+    return usersDetails.length > 0
+      ? (usersDetails[0]?.branch_id ?? null)
+      : null;
+  }
+  return usersDetails?.branch_id ?? null;
+};
+
 export default function GiveOnlineScreen() {
   const insets = useSafeAreaInsets();
+
   const [branding, setBranding] = useState<any>(null);
-  const [selectedWallet, setSelectedWallet] = useState<string | null>(null);
-  const [selectedOfferingType, setSelectedOfferingType] = useState<string | null>(null);
-  const [selectedQuickAmount, setSelectedQuickAmount] = useState<string | null>(null);
+
+  const [selectedWallet, setSelectedWallet] = useState<WalletKey | null>(null);
+
+  const [selectedQuickAmount, setSelectedQuickAmount] = useState<string | null>(
+    null,
+  );
   const [customAmount, setCustomAmount] = useState("");
-  const [message, setMessage] = useState("");
-  const [showOfferingModal, setShowOfferingModal] = useState(false);
+
+  // Weâ€™ll use this as a â€œReview & Payâ€ modal (not an instant success modal)
   const [showConfirmationModal, setShowConfirmationModal] = useState(false);
+
+  const donorNoteOptions: { key: DonorNoteKey; label: string }[] = [
+    { key: "anonymous", label: "Anonymous (Donation - Anonymous)" },
+    { key: "family", label: "By Family Giving" },
+    { key: "individual", label: "Individual Donation" },
+  ];
+  const [donorNoteKey, setDonorNoteKey] = useState<DonorNoteKey>("individual");
+
+  const [isPaying, setIsPaying] = useState(false);
 
   useEffect(() => {
     (async () => {
-      const { data, error } = await supabase.from("ui_settings").select("*").single();
-      if (error) console.error("❌ Branding fetch error:", error);
+      const { data, error } = await supabase
+        .from("ui_settings")
+        .select("*")
+        .single();
+      if (error) console.error("âŒ Branding fetch error:", error);
       else setBranding(data);
     })();
   }, []);
 
-  const offeringTypes = ["Tithes", "Offering", "Mission Fund", "Building Fund", "Special Offering"];
+  WebBrowser.maybeCompleteAuthSession();
+
+  const primary = branding?.primary_color || "#064622";
+  const secondary = branding?.secondary_color || "#319658";
+
+  const logo = branding?.logo_icon
+    ? branding.logo_icon.startsWith("http")
+      ? branding.logo_icon
+      : supabase.storage.from("logos").getPublicUrl(branding.logo_icon).data
+          .publicUrl
+    : null;
+
+  const donorNoteLabel = useMemo(() => {
+    return (
+      donorNoteOptions.find((o) => o.key === donorNoteKey)?.label ||
+      "Individual Donation"
+    );
+  }, [donorNoteKey]);
+
+  const amountNum = useMemo(() => parseAmountPHP(customAmount), [customAmount]);
 
   const handleQuickGive = (amount: string) => {
     if (amount === "Other") {
@@ -43,25 +127,208 @@ export default function GiveOnlineScreen() {
       setCustomAmount("");
     } else {
       setSelectedQuickAmount(amount);
-      setCustomAmount(amount.replace("₱", "").replace(",", ""));
+      setCustomAmount(amount.replace("₱", "").replace(/,/g, ""));
+    }
+  };
+
+  const validateForm = () => {
+    if (!selectedWallet) return "Please select a payment method.";
+    if (!customAmount || parseAmountPHP(customAmount) <= 0)
+      return "Please enter a valid amount.";
+    return null;
+  };
+
+  // This creates a PayMongo checkout via your Supabase Edge Function:
+  // supabase.functions.invoke("create_paymongo_checkout", { body: {...} })
+  const startPaymongoCheckout = async () => {
+    const err = validateForm();
+    if (err) {
+      Alert.alert("Missing Info", err);
+      return;
+    }
+
+    try {
+      setIsPaying(true);
+
+      const { data: auth } = await supabase.auth.getUser();
+      const authUser = auth?.user;
+      if (!authUser) throw new Error("Not logged in");
+
+      const { data: appUser, error: appUserErr } = await supabase
+        .from("users")
+        .select(
+          "user_id, role, user_details_id, users_details:users_details(branch_id)",
+        )
+        .eq("auth_user_id", authUser.id)
+        .eq("role", "member")
+        .maybeSingle();
+      if (appUserErr) {
+        throw new Error(
+          `Unable to read user record: ${appUserErr.message || appUserErr}`,
+        );
+      }
+      if (!appUser) {
+        throw new Error("No member role found for this account.");
+      }
+
+      const branchId = pickBranchId(appUser.users_details);
+
+      const payment_method_types = paymongoTypesForWallet(selectedWallet!);
+
+      // PayMongo requires HTTPS return URLs. For mobile (Expo Go), use a web URL
+      // that can deep-link back into the app (e.g., your domain with a redirect).
+      const webReturnBase =
+        process.env.EXPO_PUBLIC_WEB_BASE_URL ||
+        process.env.EXPO_PUBLIC_SITE_URL ||
+        "";
+
+      const buildReturnUrl = (status: "success" | "cancel") => {
+        if (webReturnBase) {
+          return `${webReturnBase}/Member-User/giving-result?status=${status}`;
+        }
+        return Linking.createURL("/Member-User/giving-result", {
+          queryParams: { status },
+        });
+      };
+
+      const successUrl = buildReturnUrl("success");
+      const cancelUrl = buildReturnUrl("cancel");
+
+      const payload = {
+        amount_php: amountNum,
+        wallet: selectedWallet,
+        donor_note_key: donorNoteKey,
+        donor_note_label: donorNoteLabel,
+        payment_method_types,
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+        metadata: {
+          app_user_id: appUser.user_id,
+          branch_id: branchId,
+          // add anything else you need for your webhook/records
+        },
+      };
+
+      const { data, error } = await supabase.functions.invoke(
+        "create_paymongo_checkout",
+        {
+          body: payload,
+        },
+      );
+
+      if (error) {
+        let detailsMsg = "";
+        try {
+          const ctx = (error as any)?.context;
+          if (ctx && typeof ctx.clone === "function") {
+            const parsed = await ctx.clone().json().catch(() => null);
+            if (parsed) {
+              detailsMsg =
+                parsed?.error ||
+                parsed?.message ||
+                parsed?.details ||
+                JSON.stringify(parsed);
+            } else {
+              const text = await ctx.clone().text().catch(() => "");
+              detailsMsg = text;
+            }
+          } else if (ctx?._bodyInit?._data || ctx?._bodyBlob?._data) {
+            const raw =
+              ctx?._bodyInit?._data ??
+              ctx?._bodyBlob?._data ??
+              "";
+            const rawText =
+              typeof raw === "string"
+                ? raw
+                : raw?.text
+                  ? String(raw.text)
+                  : JSON.stringify(raw);
+            const parsed =
+              typeof rawText === "string" ? JSON.parse(rawText) : rawText;
+            detailsMsg =
+              parsed?.error ||
+              parsed?.message ||
+              parsed?.details ||
+              JSON.stringify(parsed);
+          } else {
+            const rawBody = (error as any)?.context?.body;
+            if (rawBody) {
+              const parsed =
+                typeof rawBody === "string" ? JSON.parse(rawBody) : rawBody;
+              detailsMsg =
+                parsed?.error ||
+                parsed?.message ||
+                parsed?.details ||
+                JSON.stringify(parsed);
+            }
+          }
+        } catch {}
+
+        const status = (error as any)?.context?.status;
+        console.error("❌ create_paymongo_checkout error:", {
+          status,
+          context: (error as any)?.context,
+          error,
+        });
+
+        Alert.alert(
+          "Checkout Failed",
+          detailsMsg ||
+            (status ? `Server error (${status}).` : "") ||
+            "Unable to start checkout. If you selected Bank and it isn't enabled in PayMongo yet, try GCash or Maya.",
+        );
+        return;
+      }
+
+      const checkoutUrl = data?.checkout_url || data?.url || data?.checkoutUrl;
+      if (!checkoutUrl) {
+        console.error("âŒ Missing checkout_url in response:", data);
+        Alert.alert(
+          "Checkout Failed",
+          "Checkout URL not returned by the server.",
+        );
+        return;
+      }
+
+      // Close the review modal before redirect
+      setShowConfirmationModal(false);
+
+      // Open PayMongo checkout
+      const returnUrl = Linking.createURL("/Member-User/giving-result");
+      if (Platform.OS === "web") {
+        window.location.assign(checkoutUrl);
+      } else {
+        const result = await WebBrowser.openAuthSessionAsync(
+          checkoutUrl,
+          returnUrl,
+        );
+        if (result.type === "success" && result.url) {
+          router.replace({
+            pathname: "/Member-User/giving-result",
+            params: { url: result.url },
+          });
+        }
+      }
+    } catch (e: any) {
+      console.error("âŒ startPaymongoCheckout failed:", e);
+      Alert.alert(
+        "Error",
+        e?.message || "Something went wrong while starting checkout.",
+      );
+    } finally {
+      setIsPaying(false);
     }
   };
 
   const handleSubmit = () => {
-    if (!selectedWallet || !selectedOfferingType || (!selectedQuickAmount && !customAmount)) {
-      alert("Please fill in all required fields");
+    const err = validateForm();
+    if (err) {
+      Alert.alert("Missing Info", err);
       return;
     }
+    // Show â€œReview & Payâ€ modal
     setShowConfirmationModal(true);
   };
-
-  const primary = branding?.primary_color || "#064622";
-  const secondary = branding?.secondary_color || "#319658";
-  const logo = branding?.logo_icon
-    ? branding.logo_icon.startsWith("http")
-      ? branding.logo_icon
-      : supabase.storage.from("logos").getPublicUrl(branding.logo_icon).data.publicUrl
-    : null;
 
   return (
     <View style={{ flex: 1, backgroundColor: "#fff" }}>
@@ -72,11 +339,19 @@ export default function GiveOnlineScreen() {
         ]}
       >
         <View style={styles.headerLeft}>
-          <TouchableOpacity style={styles.iconButton} onPress={() => router.back()}>
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={() => router.back()}
+          >
             <Ionicons name="arrow-back" size={22} color="#fff" />
           </TouchableOpacity>
+
           {logo ? (
-            <Image source={{ uri: logo }} style={styles.logo} resizeMode="contain" />
+            <Image
+              source={{ uri: logo }}
+              style={styles.logo}
+              resizeMode="contain"
+            />
           ) : (
             <View style={styles.logoPlaceholder} />
           )}
@@ -88,7 +363,10 @@ export default function GiveOnlineScreen() {
           <TouchableOpacity style={styles.iconButton}>
             <Ionicons name="notifications-outline" size={20} color="#fff" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.iconButton} onPress={() => router.push("/Member-User/profile")}> 
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={() => router.push("/Member-User/profile")}
+          >
             <Ionicons name="person-circle-outline" size={24} color="#fff" />
           </TouchableOpacity>
         </View>
@@ -102,35 +380,50 @@ export default function GiveOnlineScreen() {
           </Text>
         </View>
 
+        {/* Payment method */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Select Payment Method</Text>
           <View style={styles.walletRow}>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[
                 styles.walletChip,
-                selectedWallet === "Maya" && { borderColor: primary, backgroundColor: `${primary}15` }
+                styles.walletChipLogo,
+                selectedWallet === "Maya" && {
+                  borderColor: primary,
+                  backgroundColor: `${primary}15`,
+                },
               ]}
               onPress={() => setSelectedWallet("Maya")}
+              activeOpacity={0.85}
             >
-              <MayaIcon width={28} height={28} />
-              <Text style={styles.walletText}>Maya</Text>
+              <MayaIcon width={70} height={26} />
             </TouchableOpacity>
-            <TouchableOpacity 
+
+            <TouchableOpacity
               style={[
                 styles.walletChip,
-                selectedWallet === "GCash" && { borderColor: primary, backgroundColor: `${primary}15` }
+                styles.walletChipLogo,
+                selectedWallet === "GCash" && {
+                  borderColor: primary,
+                  backgroundColor: `${primary}15`,
+                },
               ]}
               onPress={() => setSelectedWallet("GCash")}
+              activeOpacity={0.85}
             >
-              <GcashIcon width={28} height={28} />
-              <Text style={styles.walletText}>GCash</Text>
+              <GcashIcon width={70} height={26} />
             </TouchableOpacity>
-            <TouchableOpacity 
+
+            <TouchableOpacity
               style={[
                 styles.walletChip,
-                selectedWallet === "Bank" && { borderColor: primary, backgroundColor: `${primary}15` }
+                selectedWallet === "Bank" && {
+                  borderColor: primary,
+                  backgroundColor: `${primary}15`,
+                },
               ]}
               onPress={() => setSelectedWallet("Bank")}
+              activeOpacity={0.85}
             >
               <BankIcon width={28} height={28} />
               <Text style={styles.walletText}>Bank</Text>
@@ -138,6 +431,7 @@ export default function GiveOnlineScreen() {
           </View>
         </View>
 
+        {/* Quick giving */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Quick Giving</Text>
           <View style={styles.quickGivingButtons}>
@@ -146,17 +440,23 @@ export default function GiveOnlineScreen() {
                 key={amount}
                 style={[
                   styles.quickGiveBtn,
-                  { 
-                    borderColor: selectedQuickAmount === amount ? primary : secondary,
-                    backgroundColor: selectedQuickAmount === amount ? primary : "#fff" 
+                  {
+                    borderColor:
+                      selectedQuickAmount === amount ? primary : secondary,
+                    backgroundColor:
+                      selectedQuickAmount === amount ? primary : "#fff",
                   },
                 ]}
                 onPress={() => handleQuickGive(amount)}
+                activeOpacity={0.85}
               >
                 <Text
                   style={[
                     styles.quickGiveText,
-                    { color: selectedQuickAmount === amount ? "#fff" : secondary },
+                    {
+                      color:
+                        selectedQuickAmount === amount ? "#fff" : secondary,
+                    },
                   ]}
                 >
                   {amount}
@@ -166,19 +466,40 @@ export default function GiveOnlineScreen() {
           </View>
         </View>
 
+        {/* Donor Note */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Offering Type</Text>
-          <TouchableOpacity 
-            style={styles.selectField}
-            onPress={() => setShowOfferingModal(true)}
-          >
-            <Text style={[styles.selectPlaceholder, selectedOfferingType && { color: '#000' }]}>
-              {selectedOfferingType || "Select Offering Type"}
-            </Text>
-            <Ionicons name="chevron-down" size={18} color="#5d6a5d" />
-          </TouchableOpacity>
+          <Text style={styles.sectionTitle}>Donor Note</Text>
+          <View style={styles.donorNoteRow}>
+            {donorNoteOptions.map((opt) => {
+              const active = donorNoteKey === opt.key;
+              return (
+                <TouchableOpacity
+                  key={opt.key}
+                  style={[
+                    styles.donorNoteChip,
+                    active && {
+                      borderColor: primary,
+                      backgroundColor: `${primary}15`,
+                    },
+                  ]}
+                  onPress={() => setDonorNoteKey(opt.key)}
+                  activeOpacity={0.85}
+                >
+                  <Text
+                    style={[
+                      styles.donorNoteText,
+                      active && { color: primary, fontWeight: "700" },
+                    ]}
+                  >
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </View>
 
+        {/* Amount */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Amount (Pesos)</Text>
           <TextInput
@@ -192,100 +513,107 @@ export default function GiveOnlineScreen() {
           />
         </View>
 
+        {/* Submit */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Add a Message (Optional)</Text>
-          <TextInput
-            placeholder="Your message of thanksgiving or prayer request"
-            placeholderTextColor="#7a837a"
-            style={[styles.input, { height: 120, textAlignVertical: "top" }]}
-            multiline
-            value={message}
-            onChangeText={setMessage}
-          />
-        </View>
-
-        <View style={styles.section}>
-          <TouchableOpacity 
-            style={[styles.primaryBtn, { backgroundColor: primary }]} 
+          <TouchableOpacity
+            style={[styles.primaryBtn, { backgroundColor: primary }]}
             activeOpacity={0.9}
             onPress={handleSubmit}
+            disabled={isPaying}
           >
-            <Text style={styles.primaryBtnText}>Submit Giving</Text>
+            {isPaying ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.primaryBtnText}>Proceed to Payment</Text>
+            )}
           </TouchableOpacity>
         </View>
 
         <View style={{ height: 20 }} />
       </ScrollView>
 
-      {/* Offering Type Modal */}
-      <Modal
-        visible={showOfferingModal}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowOfferingModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select Offering Type</Text>
-              <TouchableOpacity onPress={() => setShowOfferingModal(false)}>
-                <Ionicons name="close" size={24} color="#000" />
-              </TouchableOpacity>
-            </View>
-            <ScrollView>
-              {offeringTypes.map((type) => (
-                <TouchableOpacity
-                  key={type}
-                  style={[
-                    styles.offeringOption,
-                    selectedOfferingType === type && { backgroundColor: `${primary}15` }
-                  ]}
-                  onPress={() => {
-                    setSelectedOfferingType(type);
-                    setShowOfferingModal(false);
-                  }}
-                >
-                  <Text style={[styles.offeringOptionText, selectedOfferingType === type && { color: primary, fontWeight: '700' }]}>
-                    {type}
-                  </Text>
-                  {selectedOfferingType === type && (
-                    <Ionicons name="checkmark-circle" size={20} color={primary} />
-                  )}
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Confirmation Modal */}
+      {/* Review & Pay Modal */}
       <Modal
         visible={showConfirmationModal}
-        transparent={true}
+        transparent
         animationType="fade"
         onRequestClose={() => setShowConfirmationModal(false)}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.confirmModalContent}>
-            <View style={[styles.confirmIconBox, { backgroundColor: `${primary}20` }]}>
-              <Ionicons name="checkmark-circle" size={64} color={primary} />
+            <View
+              style={[
+                styles.confirmIconBox,
+                { backgroundColor: `${primary}20` },
+              ]}
+            >
+              <Ionicons name="card-outline" size={54} color={primary} />
             </View>
-            <Text style={styles.confirmTitle}>Giving Submitted</Text>
+
+            <Text style={styles.confirmTitle}>Review Your Giving</Text>
+
             <Text style={styles.confirmMessage}>
-              Thank you for your generous gift of ₱{customAmount} as {selectedOfferingType}. Your contribution supports the ministry and mission of El Elyon Church.
+              Amount: ₱{amountNum.toFixed(2)} {"\n"}
+              Payment Method: {selectedWallet} {"\n"}
+              Donor Note: {donorNoteLabel}
             </Text>
-            <Text style={styles.confirmSubMessage}>
-              Payment Method: {selectedWallet}
+
+            <Text style={[styles.confirmSubMessage, { marginTop: 6 }]}>
+              You will be redirected to PayMongo to complete payment.
             </Text>
-            <TouchableOpacity
-              style={[styles.primaryBtn, { backgroundColor: primary, marginTop: 16, width: '100%' }]}
-              onPress={() => {
-                setShowConfirmationModal(false);
-                router.back();
+
+            <View
+              style={{
+                flexDirection: "row",
+                gap: 10,
+                width: "100%",
+                marginTop: 16,
               }}
             >
-              <Text style={styles.primaryBtnText}>Done</Text>
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.secondaryBtn,
+                  {
+                    borderColor: "#ccc",
+                    flex: 1,
+                    paddingVertical: 12,
+                    borderRadius: 8,
+                  },
+                ]}
+                onPress={() => setShowConfirmationModal(false)}
+                disabled={isPaying}
+              >
+                <Text
+                  style={{
+                    fontWeight: "700",
+                    color: "#333",
+                    textAlign: "center",
+                  }}
+                >
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.primaryBtn,
+                  {
+                    backgroundColor: primary,
+                    flex: 1,
+                    paddingVertical: 12,
+                    borderRadius: 8,
+                  },
+                ]}
+                onPress={startPaymongoCheckout}
+                disabled={isPaying}
+              >
+                {isPaying ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.primaryBtnText}>Pay Now</Text>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -369,6 +697,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     backgroundColor: "#f5f5f5",
   },
+  walletChipLogo: {
+    justifyContent: "center",
+  },
   walletText: {
     fontSize: 12,
     fontWeight: "600",
@@ -409,10 +740,33 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#fff",
   },
+  secondaryBtn: {
+    borderWidth: 1.5,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   quickGivingButtons: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 12,
+  },
+  donorNoteRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  donorNoteChip: {
+    borderWidth: 1,
+    borderColor: "#d0d0d0",
+    borderRadius: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: "#f9f9f9",
+  },
+  donorNoteText: {
+    fontSize: 12,
+    color: "#333",
   },
   quickGiveBtn: {
     flex: 1,
@@ -427,92 +781,81 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   paymentNote: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
-    backgroundColor: '#f0f8ff',
+    backgroundColor: "#f0f8ff",
     padding: 12,
     borderRadius: 8,
     marginHorizontal: 16,
     marginTop: 16,
     borderWidth: 1,
-    borderColor: '#d0e8ff',
+    borderColor: "#d0e8ff",
   },
   paymentNoteText: {
     flex: 1,
     fontSize: 12,
-    color: '#333',
+    color: "#333",
     lineHeight: 16,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 16,
   },
   modalContent: {
-    backgroundColor: '#fff',
-    width: '85%',
-    maxHeight: '70%',
+    backgroundColor: "#fff",
+    width: "85%",
+    maxHeight: "70%",
     borderRadius: 16,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    borderBottomColor: "#e0e0e0",
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: '800',
-    color: '#000',
-  },
-  offeringOption: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  offeringOptionText: {
-    fontSize: 15,
-    color: '#333',
+    fontWeight: "800",
+    color: "#000",
   },
   confirmModalContent: {
-    backgroundColor: '#fff',
-    marginHorizontal: 20,
+    backgroundColor: "#fff",
+    width: "100%",
+    maxWidth: 420,
     borderRadius: 16,
     padding: 24,
-    alignItems: 'center',
+    alignItems: "center",
   },
   confirmIconBox: {
     width: 100,
     height: 100,
     borderRadius: 50,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     marginBottom: 16,
   },
   confirmTitle: {
     fontSize: 20,
-    fontWeight: '800',
-    color: '#000',
+    fontWeight: "800",
+    color: "#000",
     marginBottom: 12,
   },
   confirmMessage: {
     fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
+    color: "#555",
+    textAlign: "center",
     lineHeight: 20,
-    marginBottom: 8,
   },
   confirmSubMessage: {
     fontSize: 13,
-    color: '#888',
-    textAlign: 'center',
+    color: "#888",
+    textAlign: "center",
   },
 });

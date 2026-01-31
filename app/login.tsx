@@ -152,7 +152,7 @@ export default function Login() {
         return;
       }
 
-      // 2) Now authenticated -> fetch CURRENT user's member row (RLS-safe)
+      // 2) Now authenticated -> fetch CURRENT user's role row(s) (RLS-safe)
       const { data: authData, error: authErr } = await supabase.auth.getUser();
       if (authErr || !authData?.user?.id) {
         setIsLoading(false);
@@ -162,13 +162,11 @@ export default function Login() {
 
       const authId = authData.user.id;
 
-      // IMPORTANT: filter by role so 2 rows won't break it
-      const { data: memberRow, error: memberErr } = await supabase
+      const { data: roleRows, error: memberErr } = await supabase
         .from("users")
         .select("user_id, email, is_active, role")
         .eq("auth_user_id", authId)
-        .eq("role", "member")
-        .maybeSingle();
+        .in("role", ["member", "QR_MEMBER", "QR-MEMBER"]);
 
       if (memberErr) {
         setIsLoading(false);
@@ -176,7 +174,16 @@ export default function Login() {
         return;
       }
 
-      if (!memberRow) {
+      const rows = (roleRows as any[]) ?? [];
+      const qrRow = rows.find(
+        (r) => String(r?.role || "").toUpperCase() === "QR_MEMBER",
+      );
+      const memberRow = rows.find(
+        (r) => String(r?.role || "").toLowerCase() === "member",
+      );
+      const activeRow = qrRow ?? memberRow ?? null;
+
+      if (!activeRow) {
         // user exists in auth but not in your app users table (or wrong role)
         await supabase.auth.signOut();
         setIsLoading(false);
@@ -184,23 +191,29 @@ export default function Login() {
         return;
       }
 
-      if (!memberRow.is_active) {
+      if (!activeRow.is_active) {
         await supabase.auth.signOut();
         setIsLoading(false);
         alert("Account is not active.");
         return;
       }
 
-      // Soft check: expected member email format
-      const expectedMemberEmail = toMemberEmail(plainEmail);
-      if (memberRow.email && memberRow.email !== expectedMemberEmail) {
-        console.warn("Member email format mismatch", {
-          expected: expectedMemberEmail,
-          actual: memberRow.email,
-        });
+      if (memberRow) {
+        // Soft check: expected member email format
+        const expectedMemberEmail = toMemberEmail(plainEmail);
+        if (memberRow.email && memberRow.email !== expectedMemberEmail) {
+          console.warn("Member email format mismatch", {
+            expected: expectedMemberEmail,
+            actual: memberRow.email,
+          });
+        }
       }
 
-      router.replace("/Member-User/Member-Dashboard");
+      if (qrRow) {
+        router.replace("/QR-User/QR-Dashboard");
+      } else {
+        router.replace("/Member-User/Member-Dashboard");
+      }
     } catch (e: any) {
       setIsLoading(false);
       alert(e?.message || "An error occurred during login.");

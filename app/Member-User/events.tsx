@@ -1,11 +1,12 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as Location from "expo-location";
 import { router } from "expo-router";
-import React, { useEffect, useState } from "react";
+import { DateTime } from "luxon";
+import React, { useEffect, useMemo, useState } from "react";
 import {
-  Dimensions,
-  FlatList,
   Image,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -14,222 +15,186 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { RRule } from "rrule";
 import { supabase } from "../../src/lib/supabaseClient";
 import MemberNavbar from "./member-navbar";
 
-const { width } = Dimensions.get("window");
+const APP_TZ = "Asia/Manila";
+const EVENT_STATUSES = ["Scheduled", "Published", "Active", "Approved"];
+const DATE_FILTERS = ["All", "Today", "This Week", "This Month"];
 
 type EventItem = {
-  id: number;
+  key: string;
+  source: "single" | "series";
+  event_id?: number;
+  series_id?: number;
   title: string;
-  subtitle: string;
-  date: string;
-  time: string;
-  image: string;
-  location: string;
+  description: string | null;
+  event_type: string | null;
+  location: string | null;
+  start_datetime: string;
+  end_datetime: string;
+  cover_image_path: string | null;
+  branch_id: number | null;
+  is_open_for_all: boolean;
+  status: string | null;
+  geofence_lat?: number | null;
+  geofence_lng?: number | null;
 };
 
-const BUCKET = "church-event"; // change if your bucket name is different
-
-const toPublicUrl = (path: string | null | undefined) => {
-  if (!path) return "";
-  if (path.startsWith("http")) return path;
-  return supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+type RecommendationItem = {
+  key: string;
+  label: string;
+  event: EventItem;
 };
 
-const fmtDate = (iso: string) => {
+const isHttpUrl = (s?: string | null) => !!s && /^https?:\/\//i.test(s);
+
+const formatDateLong = (iso: string) => {
   const d = new Date(iso);
   return d.toLocaleDateString("en-US", {
-    month: "short",
+    month: "long",
     day: "numeric",
     year: "numeric",
   });
 };
 
-const fmtTime = (iso: string) => {
-  const d = new Date(iso);
-  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+const formatTimeRange = (startIso: string, endIso: string) => {
+  const s = new Date(startIso);
+  const e = new Date(endIso);
+  const st = s.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const et = e.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return `${st} - ${et}`;
 };
+
+const getEventImageUrl = (path: string | null) => {
+  if (!path) return null;
+  if (isHttpUrl(path)) return path;
+  return supabase.storage.from("church-event").getPublicUrl(path).data
+    .publicUrl;
+};
+
+const toRadians = (deg: number) => (deg * Math.PI) / 180;
+const distanceInMeters = (
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number,
+) => {
+  const R = 6371000;
+  const dLat = toRadians(lat2 - lat1);
+  const dLon = toRadians(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRadians(lat1)) *
+      Math.cos(toRadians(lat2)) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+};
+
+function combineDateAndTime(
+  dateISO: string,
+  timeHHMMSS: string,
+  zone = APP_TZ,
+) {
+  const [h, m, s] = timeHHMMSS.split(":").map((x) => parseInt(x, 10));
+  return DateTime.fromISO(dateISO, { zone }).set({
+    hour: h || 0,
+    minute: m || 0,
+    second: s || 0,
+    millisecond: 0,
+  });
+}
+
+function expandSeriesToOccurrences(args: {
+  series: any;
+  windowStart: DateTime;
+  windowEnd: DateTime;
+}): EventItem[] {
+  const { series, windowStart, windowEnd } = args;
+  if (!series?.rrule_text) return [];
+
+  const dtStart = combineDateAndTime(
+    series.starts_on,
+    series.start_time,
+    series.timezone || APP_TZ,
+  );
+  const rule = RRule.fromString(series.rrule_text);
+  const occurrences = rule.between(
+    windowStart.toJSDate(),
+    windowEnd.toJSDate(),
+    true,
+  );
+
+  return occurrences.map((occ) => {
+    const occStart = DateTime.fromJSDate(occ, {
+      zone: series.timezone || APP_TZ,
+    }).set({
+      hour: dtStart.hour,
+      minute: dtStart.minute,
+      second: dtStart.second,
+      millisecond: 0,
+    });
+    const occEnd = combineDateAndTime(
+      occStart.toISODate()!,
+      series.end_time,
+      series.timezone || APP_TZ,
+    );
+
+    return {
+      key: `series-${series.series_id}-${occStart.toISO()}`,
+      source: "series",
+      series_id: series.series_id,
+      title: series.title,
+      description: series.description ?? null,
+      event_type: series.event_type ?? null,
+      location: series.location ?? null,
+      start_datetime: occStart.toISO() ?? new Date().toISOString(),
+      end_datetime: occEnd.toISO() ?? new Date().toISOString(),
+      cover_image_path: series.cover_image_path ?? null,
+      branch_id: series.branch_id ?? null,
+      is_open_for_all: !!series.is_open_for_all,
+      status: series.status ?? null,
+      geofence_lat: series.geofence_lat ?? null,
+      geofence_lng: series.geofence_lng ?? null,
+    };
+  });
+}
 
 export default function EventsScreen() {
   const insets = useSafeAreaInsets();
   const [branding, setBranding] = useState<any>(null);
-  const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [selectedType, setSelectedType] = useState<string | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [showDateFilter, setShowDateFilter] = useState(false);
-  const [showTypeFilter, setShowTypeFilter] = useState(false);
-  const [showCategoryFilter, setShowCategoryFilter] = useState(false);
-
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [notifications, setNotifications] = useState<any[]>([]);
   const [events, setEvents] = useState<EventItem[]>([]);
-  const [eventsLoading, setEventsLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [branches, setBranches] = useState<{ id: number; name: string }[]>([]);
   const [memberBranchId, setMemberBranchId] = useState<number | null>(null);
-  const [branchResolved, setBranchResolved] = useState(false);
+  const [selectedBranchId, setSelectedBranchId] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedDate, setSelectedDate] = useState<string>(DATE_FILTERS[0]);
+  const [selectedType, setSelectedType] = useState<string>("All");
+  const [eventTypes, setEventTypes] = useState<string[]>(["All"]);
+  const [openDropdown, setOpenDropdown] = useState<
+    "branch" | "date" | "type" | null
+  >(null);
+  const [recommendations, setRecommendations] = useState<RecommendationItem[]>(
+    [],
+  );
+  const [currentCoords, setCurrentCoords] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
 
-  const notifications = [
-    {
-      id: 1,
-      type: "event",
-      title: "Youth Fellowship Starting Soon",
-      message:
-        "Youth Fellowship is starting in 30 minutes at the main church. Join us!",
-      time: "5 mins ago",
-      icon: "people",
-      read: false,
-    },
-    {
-      id: 2,
-      type: "location",
-      title: "Near Bustos Campus",
-      message:
-        "You are near Bustos Campus. Sunday Service starts at 10:00 AM today.",
-      time: "1 hour ago",
-      icon: "location",
-      read: false,
-    },
-    {
-      id: 3,
-      type: "reminder",
-      title: "Pastor Appreciation Day",
-      message:
-        "Don't forget! Pastor Appreciation Day is this Sunday, October 12.",
-      time: "2 hours ago",
-      icon: "calendar",
-      read: true,
-    },
-    {
-      id: 4,
-      type: "branch",
-      title: "Cavite Branch Activity",
-      message: "Special Family Fun Day at Cavite Community Grounds. RSVP now!",
-      time: "Yesterday",
-      icon: "home",
-      read: true,
-    },
-    {
-      id: 5,
-      type: "attendance",
-      title: "Attendance Recorded",
-      message: "Your attendance at Sunday Worship Service has been validated.",
-      time: "2 days ago",
-      icon: "checkmark-circle",
-      read: true,
-    },
-  ];
-
-  useEffect(() => {
-    (async () => {
-      const { data, error } = await supabase
-        .from("ui_settings")
-        .select("*")
-        .single();
-      if (error) console.error("❌ Branding fetch error:", error);
-      else setBranding(data);
-    })();
-  }, []);
-
-  const loadMemberBranchId = async () => {
-    const { data: auth } = await supabase.auth.getUser();
-    const authUserId = auth?.user?.id;
-    if (!authUserId) return null;
-
-    // IMPORTANT: your branch_id is in users_details, NOT in users
-    const { data, error } = await supabase
-      .from("users")
-      .select("users_details:users_details(branch_id)")
-      .eq("auth_user_id", authUserId)
-      .order("updated_at", { ascending: false })
-      .limit(1);
-
-    if (error) {
-      console.error("❌ loadMemberBranchId error:", error);
-      return null;
-    }
-
-    const row = Array.isArray(data) ? data[0] : data;
-    const ud = (row as any)?.users_details;
-    const b = Array.isArray(ud) ? ud?.[0]?.branch_id : ud?.branch_id;
-    return typeof b === "number" ? b : null;
-  };
-
-  const loadEvents = async (branchId: number | null) => {
-    setEventsLoading(true);
-    try {
-      // v_events_display already:
-      // - includes all non-recurring upcoming events
-      // - includes ONLY nearest upcoming occurrence per recurring series
-      let q = supabase
-        .from("v_events_display")
-        .select(
-          `
-        event_id,
-        branch_id,
-        title,
-        description,
-        event_type,
-        location,
-        start_datetime,
-        end_datetime,
-        is_open_for_all,
-        cover_image_path
-      `,
-        )
-        .order("start_datetime", { ascending: true });
-
-      /**
-       * Visibility rules (simple & safe default):
-       * - show open_for_all always
-       * - plus show same-branch events for the member
-       *
-       * If branchId is null (user missing branch), fallback to open_for_all only.
-       */
-      if (branchId != null) {
-        q = q.or(`is_open_for_all.eq.true,branch_id.eq.${branchId}`);
-      } else {
-        q = q.eq("is_open_for_all", true);
-      }
-
-      const { data, error } = await q;
-      if (error) throw error;
-
-      const mapped: EventItem[] = (data ?? []).map((e: any) => ({
-        id: e.event_id,
-        title: e.title ?? "",
-        subtitle: e.description ?? "",
-        date: e.start_datetime ? fmtDate(e.start_datetime) : "",
-        time: e.start_datetime ? fmtTime(e.start_datetime) : "",
-        location: e.location ?? "",
-        image:
-          toPublicUrl(e.cover_image_path) ||
-          "https://via.placeholder.com/600x400?text=Event",
-      }));
-
-      setEvents(mapped);
-    } catch (e) {
-      console.error("❌ loadEvents failed:", e);
-      setEvents([]);
-    } finally {
-      setEventsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    (async () => {
-      const b = await loadMemberBranchId();
-      setMemberBranchId(b);
-      setBranchResolved(true);
-    })();
-  }, []);
-
-  useEffect(() => {
-    if (!branchResolved) return;
-    void loadEvents(memberBranchId);
-  }, [branchResolved, memberBranchId]);
-
-  const primary = branding?.primary_color || "#064622";
+  const primary = branding?.primary_color || "#0f5a2c";
   const secondary = branding?.secondary_color || "#319658";
   const logo = branding?.logo_icon
     ? branding.logo_icon.startsWith("http")
@@ -237,647 +202,810 @@ export default function EventsScreen() {
       : supabase.storage.from("logos").getPublicUrl(branding.logo_icon).data
           .publicUrl
     : null;
+  const cardShadow =
+    Platform.select({
+      web: { boxShadow: "0px 12px 28px rgba(10, 23, 17, 0.12)" },
+      default: { elevation: 3 },
+    }) ?? {};
 
-  const branches = [
-    "Bustos",
-    "Talacsan",
-    "Cavite",
-    "San Roque",
-    "Vizal Pampanga",
-  ];
-  const eventDates = ["This Week", "This Month", "This Year", "All Events"];
-  const eventTypes = [
-    "Sunday Service",
-    "Celebration",
-    "Workshop",
-    "Outreach",
-    "Training",
-  ];
-  const eventCategories = [
-    "All",
-    "Worship",
-    "Family",
-    "Kids",
-    "Youth",
-    "Community",
-  ];
+  const getAppUser = async (): Promise<{
+    user_id: number;
+    branch_id: number | null;
+  } | null> => {
+    const { data: auth } = await supabase.auth.getUser();
+    const authUserId = auth?.user?.id;
+    if (!authUserId) return null;
 
-  const emptyEvent: EventItem = {
-    id: 0,
-    title: "",
-    subtitle: "",
-    date: "",
-    time: "",
-    location: "",
-    image: "https://via.placeholder.com/600x400?text=Event",
+    const { data, error } = await supabase
+      .from("users")
+      .select(`user_id, users_details:users_details (branch_id)`)
+      .eq("auth_user_id", authUserId)
+      .ilike("role", "member")
+      .order("updated_at", { ascending: false })
+      .limit(1);
+
+    if (error) {
+      console.error("getAppUser error:", error);
+      return null;
+    }
+    const row = Array.isArray(data) ? data[0] : data;
+    const user_id = row?.user_id;
+    const branch_id = Array.isArray(row?.users_details)
+      ? (row?.users_details?.[0]?.branch_id ?? null)
+      : (row?.users_details?.branch_id ?? null);
+    if (!user_id) return null;
+    return { user_id, branch_id };
   };
 
-  const recommendedBranch = branches[0];
-  const nearestBranch = selectedBranch || recommendedBranch;
-  const recommendedNearestEvent =
-    events.find((event) =>
-      event.location.toLowerCase().includes(nearestBranch.toLowerCase()),
-    ) ||
-    events[0] ||
-    emptyEvent;
+  const loadBranding = async () => {
+    const { data, error } = await supabase
+      .from("ui_settings")
+      .select("*")
+      .single();
+    if (!error) setBranding(data);
+  };
 
-  const interestEvent =
-    events.find((event) => event.id !== recommendedNearestEvent.id) ||
-    recommendedNearestEvent;
+  const loadBranches = async () => {
+    const { data, error } = await supabase
+      .from("branches")
+      .select("branch_id, name")
+      .order("name", { ascending: true });
+    if (error) {
+      console.warn("loadBranches error:", error);
+      setBranches([]);
+      return;
+    }
+    const rows = (data ?? []).map((b: any) => ({
+      id: b.branch_id,
+      name: b.name ?? "Branch",
+    }));
+    rows.sort((a, b) => a.name.localeCompare(b.name));
+    setBranches(rows);
+  };
 
-  const filteredEvents = events.filter((event) => {
-    // Branch filter (UI) still works with location text, but better to use branch_id later
-    const branchMatch =
-      !selectedBranch ||
-      event.location.toLowerCase().includes(selectedBranch.toLowerCase());
+  const loadNotifications = async () => {
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      const authUserId = auth?.user?.id;
+      if (!authUserId) {
+        setNotifications([]);
+        return;
+      }
 
-    const searchMatch =
-      !searchQuery ||
-      event.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      event.subtitle.toLowerCase().includes(searchQuery.toLowerCase());
+      const { data: appUser } = await supabase
+        .from("users")
+        .select("user_id")
+        .eq("auth_user_id", authUserId)
+        .ilike("role", "member")
+        .order("updated_at", { ascending: false })
+        .limit(1);
 
-    // Date/Type/Category filters:
-    // For now, keep them as simple string matching until you decide real DB-driven filters
-    const dateMatch = !selectedDate || selectedDate === "All Events";
-    const typeMatch =
-      !selectedType ||
-      event.title.toLowerCase().includes(selectedType.toLowerCase());
-    const categoryMatch =
-      !selectedCategory ||
-      selectedCategory === "All" ||
-      event.title.toLowerCase().includes(selectedCategory.toLowerCase());
+      const appUserRow = Array.isArray(appUser) ? appUser[0] : appUser;
+      const userId = appUserRow?.user_id;
+      if (!userId) {
+        setNotifications([]);
+        return;
+      }
 
-    return (
-      branchMatch && searchMatch && dateMatch && typeMatch && categoryMatch
-    );
-  });
+      const { data, error } = await supabase
+        .from("notifications")
+        .select("*")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(50);
 
-  const renderEvent = ({ item }: { item: EventItem }) => (
-    <View style={[styles.card, { borderColor: "#E3E8E3" }]}>
-      <View style={{ flex: 1, paddingRight: 12 }}>
-        <Text
-          style={[styles.cardDate, { color: "#777" }]}
-        >{`${item.date} at ${item.time}`}</Text>
-        <Text style={styles.cardTitle}>{item.title}</Text>
-        <Text style={styles.cardSubtitle} numberOfLines={3}>
-          {item.subtitle}
-        </Text>
-        <TouchableOpacity
-          style={[styles.viewBtn, { borderColor: secondary }]}
-          activeOpacity={0.9}
-          onPress={() =>
-            router.push({
-              pathname: "/Member-User/event-details",
-              params: {
-                id: String(item.id),
-                title: item.title,
-                subtitle: item.subtitle,
-                date: item.date,
-                time: item.time,
-                location: item.location,
-                image: item.image,
-              },
-            })
-          }
-        >
-          <Text style={[styles.viewBtnText, { color: secondary }]}>View</Text>
-        </TouchableOpacity>
-      </View>
-      <Image source={{ uri: item.image }} style={styles.cardImage} />
-    </View>
+      if (error) throw error;
+
+      const rows = (data ?? []).map((n: any) => ({
+        id: n.id,
+        read: !!n.is_read,
+      }));
+      setNotifications(rows);
+    } catch (e) {
+      console.error("loadNotifications failed:", e);
+      setNotifications([]);
+    }
+  };
+
+  const loadLocation = async () => {
+    try {
+      let status = (await Location.getForegroundPermissionsAsync()).status;
+      if (status !== "granted") {
+        const req = await Location.requestForegroundPermissionsAsync();
+        status = req.status;
+      }
+      if (status !== "granted") return;
+      const pos = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      setCurrentCoords({
+        latitude: pos.coords.latitude,
+        longitude: pos.coords.longitude,
+      });
+    } catch (e) {
+      console.warn("location unavailable:", e);
+    }
+  };
+
+  const loadEvents = async (branchOverride: number | null) => {
+    setLoading(true);
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      const authUserId = auth?.user?.id;
+      const appUser = await getAppUser();
+      const userBranchId = appUser?.branch_id ?? null;
+      if (__DEV__) {
+        console.log("events: authUserId", authUserId);
+        console.log("events: appUser", appUser);
+      }
+
+      if (memberBranchId === null && userBranchId !== null) {
+        setMemberBranchId(userBranchId);
+      }
+
+      let bmIds: number[] = [];
+      if (authUserId) {
+        const { data: ums } = await supabase
+          .from("user_ministries")
+          .select("branch_ministry_id")
+          .eq("auth_user_id", authUserId)
+          .eq("status", "Active");
+        bmIds = (ums ?? [])
+          .map((x: any) => x.branch_ministry_id)
+          .filter(Boolean);
+      }
+      if (__DEV__) {
+        console.log("events: bmIds", bmIds);
+      }
+
+      const branchIdForQuery = branchOverride ?? userBranchId;
+
+      let openEventsQuery = supabase
+        .from("events")
+        .select("*")
+        .in("status", EVENT_STATUSES)
+        .eq("is_open_for_all", true)
+        .gte("end_datetime", new Date().toISOString())
+        .order("start_datetime", { ascending: true });
+
+      if (branchIdForQuery !== null && branchIdForQuery !== undefined) {
+        openEventsQuery = openEventsQuery.or(
+          `branch_id.eq.${branchIdForQuery},branch_id.is.null`,
+        );
+      } else {
+        openEventsQuery = openEventsQuery.is("branch_id", null);
+      }
+
+      const { data: openEvents, error: openErr } = await openEventsQuery;
+      if (openErr) throw openErr;
+      if (__DEV__) {
+        console.log("events: openEvents", openEvents?.length ?? 0);
+      }
+
+      let targetedEvents: any[] = [];
+      if (bmIds.length > 0) {
+        const { data: aud, error: audErr } = await supabase
+          .from("event_audiences")
+          .select("event_id")
+          .in("branch_ministry_id", bmIds);
+        if (audErr) throw audErr;
+
+        const targetedEventIds = Array.from(
+          new Set((aud ?? []).map((a: any) => a.event_id)),
+        ).filter(Boolean);
+
+        let targetedQuery = supabase
+          .from("events")
+          .select("*")
+          .in("status", EVENT_STATUSES)
+          .gte("end_datetime", new Date().toISOString())
+          .order("start_datetime", { ascending: true });
+
+        if (targetedEventIds.length > 0) {
+          targetedQuery = targetedQuery.in("event_id", targetedEventIds);
+        } else {
+          targetedQuery = targetedQuery.in("branch_ministry_id", bmIds);
+        }
+
+        const { data: e2, error: e2Err } = await targetedQuery;
+        if (e2Err) throw e2Err;
+        targetedEvents = e2 ?? [];
+
+        if (targetedEventIds.length > 0) {
+          const { data: directEvents, error: directErr } = await supabase
+            .from("events")
+            .select("*")
+            .in("status", EVENT_STATUSES)
+            .in("branch_ministry_id", bmIds)
+            .gte("end_datetime", new Date().toISOString())
+            .order("start_datetime", { ascending: true });
+
+          if (directErr) throw directErr;
+          targetedEvents = [...targetedEvents, ...(directEvents ?? [])];
+        }
+      }
+      if (__DEV__) {
+        console.log("events: targetedEvents", targetedEvents.length);
+      }
+
+      const uniqSinglesMap = new Map<number, any>();
+      [...(openEvents ?? []), ...(targetedEvents ?? [])].forEach((ev: any) => {
+        if (ev?.event_id != null) {
+          uniqSinglesMap.set(ev.event_id, ev);
+        }
+      });
+
+      const singles: EventItem[] = Array.from(uniqSinglesMap.values()).map(
+        (ev: any) => ({
+          key: `event-${ev.event_id}`,
+          source: "single",
+          event_id: ev.event_id,
+          title: ev.title,
+          description: ev.description ?? null,
+          event_type: ev.event_type ?? null,
+          location: ev.location ?? null,
+          start_datetime: ev.start_datetime,
+          end_datetime: ev.end_datetime,
+          cover_image_path: ev.cover_image_path ?? null,
+          branch_id: ev.branch_id ?? null,
+          is_open_for_all: !!ev.is_open_for_all,
+          status: ev.status ?? null,
+          geofence_lat: ev.geofence_lat ?? null,
+          geofence_lng: ev.geofence_lng ?? null,
+        }),
+      );
+
+      let openSeriesQuery = supabase
+        .from("event_series")
+        .select("*")
+        .eq("is_active", true)
+        .eq("is_open_for_all", true)
+        .in("status", ["Approved", "Active", "Published"])
+        .order("starts_on", { ascending: true });
+
+      if (branchIdForQuery !== null && branchIdForQuery !== undefined) {
+        openSeriesQuery = openSeriesQuery.or(
+          `branch_id.eq.${branchIdForQuery},branch_id.is.null`,
+        );
+      } else {
+        openSeriesQuery = openSeriesQuery.is("branch_id", null);
+      }
+
+      const { data: openSeries, error: seriesErr } = await openSeriesQuery;
+      if (seriesErr) throw seriesErr;
+      if (__DEV__) {
+        console.log("events: openSeries", openSeries?.length ?? 0);
+      }
+
+      let targetedSeries: any[] = [];
+      if (bmIds.length > 0) {
+        const { data: sa, error: saErr } = await supabase
+          .from("event_series_audiences")
+          .select("series_id")
+          .in("branch_ministry_id", bmIds);
+        if (saErr) throw saErr;
+
+        const seriesIds = Array.from(
+          new Set((sa ?? []).map((x: any) => x.series_id)),
+        ).filter(Boolean);
+
+        if (seriesIds.length > 0) {
+          const { data: ts, error: tsErr } = await supabase
+            .from("event_series")
+            .select("*")
+            .eq("is_active", true)
+            .in("series_id", seriesIds)
+            .in("status", ["Approved", "Active", "Published"])
+            .order("starts_on", { ascending: true });
+
+          if (tsErr) throw tsErr;
+          targetedSeries = ts ?? [];
+        }
+      }
+      if (__DEV__) {
+        console.log("events: targetedSeries", targetedSeries.length);
+      }
+
+      if (branchIdForQuery !== null && branchIdForQuery !== undefined) {
+        const { data: branchSeries, error: branchSeriesErr } = await supabase
+          .from("event_series")
+          .select("*")
+          .eq("is_active", true)
+          .eq("branch_id", branchIdForQuery)
+          .in("status", ["Approved", "Active", "Published"])
+          .order("starts_on", { ascending: true });
+        if (branchSeriesErr) throw branchSeriesErr;
+        targetedSeries = [...targetedSeries, ...(branchSeries ?? [])];
+      }
+
+      const allSeries = [...(openSeries ?? []), ...(targetedSeries ?? [])];
+      const uniqSeriesMap = new Map<number, any>();
+      allSeries.forEach((s: any) => {
+        if (s?.series_id != null) uniqSeriesMap.set(s.series_id, s);
+      });
+      const uniqSeries = Array.from(uniqSeriesMap.values());
+
+      const windowStart = DateTime.now().setZone(APP_TZ).startOf("day");
+      const windowEnd = windowStart.plus({ days: 90 }).endOf("day");
+      const seriesOccurrences = uniqSeries.flatMap((s: any) =>
+        expandSeriesToOccurrences({ series: s, windowStart, windowEnd }),
+      );
+
+      const merged = [...singles, ...seriesOccurrences];
+      merged.sort(
+        (a, b) =>
+          new Date(a.start_datetime).getTime() -
+          new Date(b.start_datetime).getTime(),
+      );
+      if (__DEV__) {
+        console.log("events: merged", merged.length);
+      }
+
+      setEvents(merged);
+
+      const types = Array.from(
+        new Set(merged.map((e) => e.event_type).filter(Boolean)),
+      ) as string[];
+      const sortedTypes = types.sort((a, b) => a.localeCompare(b));
+      setEventTypes(["All", ...sortedTypes]);
+    } catch (e) {
+      console.error("loadEvents failed:", e);
+      setEvents([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadBranding();
+    loadBranches();
+    loadLocation();
+    loadNotifications();
+  }, []);
+
+  const branchIdForQuery = selectedBranchId ?? memberBranchId;
+  useEffect(() => {
+    loadEvents(branchIdForQuery ?? null);
+  }, [branchIdForQuery]);
+
+  const startOfToday = useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, []);
+
+  const upcomingEvents = useMemo(
+    () => events.filter((e) => new Date(e.start_datetime) >= startOfToday),
+    [events, startOfToday],
   );
 
+  const filteredEvents = useMemo(() => {
+    let list = [...upcomingEvents];
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      list = list.filter(
+        (e) =>
+          e.title.toLowerCase().includes(q) ||
+          (e.description || "").toLowerCase().includes(q) ||
+          (e.location || "").toLowerCase().includes(q),
+      );
+    }
+
+    if (selectedType !== "All") {
+      list = list.filter((e) => e.event_type === selectedType);
+    }
+
+    if (selectedDate === "Today") {
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      const end = new Date();
+      end.setHours(23, 59, 59, 999);
+      list = list.filter((e) => {
+        const d = new Date(e.start_datetime);
+        return d >= start && d <= end;
+      });
+    } else if (selectedDate === "This Week") {
+      const now = new Date();
+      const day = now.getDay();
+      const start = new Date(now);
+      start.setDate(now.getDate() - day);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(start);
+      end.setDate(start.getDate() + 6);
+      end.setHours(23, 59, 59, 999);
+      list = list.filter((e) => {
+        const d = new Date(e.start_datetime);
+        return d >= start && d <= end;
+      });
+    } else if (selectedDate === "This Month") {
+      const now = new Date();
+      const start = new Date(now.getFullYear(), now.getMonth(), 1);
+      const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      end.setHours(23, 59, 59, 999);
+      list = list.filter((e) => {
+        const d = new Date(e.start_datetime);
+        return d >= start && d <= end;
+      });
+    }
+
+    return list;
+  }, [upcomingEvents, searchQuery, selectedType, selectedDate]);
+
+  useEffect(() => {
+    const recs: RecommendationItem[] = [];
+    const nextEvent = upcomingEvents[0];
+
+    let nearestEvent: EventItem | null = null;
+    if (currentCoords) {
+      let bestDistance = Number.POSITIVE_INFINITY;
+      for (const ev of upcomingEvents) {
+        if (ev.geofence_lat == null || ev.geofence_lng == null) continue;
+        const dist = distanceInMeters(
+          currentCoords.latitude,
+          currentCoords.longitude,
+          Number(ev.geofence_lat),
+          Number(ev.geofence_lng),
+        );
+        if (dist < bestDistance) {
+          bestDistance = dist;
+          nearestEvent = ev;
+        }
+      }
+    }
+
+    if (nearestEvent) {
+      recs.push({
+        key: `near-${nearestEvent.key}`,
+        label: "Next event near you",
+        event: nearestEvent,
+      });
+    }
+
+    if (nextEvent && nextEvent.key !== nearestEvent?.key) {
+      recs.push({
+        key: `next-${nextEvent.key}`,
+        label: "You may be interested",
+        event: nextEvent,
+      });
+    }
+
+    setRecommendations(recs);
+  }, [upcomingEvents, currentCoords]);
+
+  const openEventDetails = (eventId: number | undefined) => {
+    if (!eventId) return;
+    router.push(`/Member-User/event-details?eventId=${eventId}`);
+  };
+
+  const selectedBranchLabel =
+    selectedBranchId == null
+      ? "All"
+      : branches.find((b) => b.id === selectedBranchId)?.name || "All";
+
   return (
-    <View style={{ flex: 1, backgroundColor: "#F7F9F7" }}>
+    <View style={styles.screen}>
       <View
         style={[
           styles.header,
           { backgroundColor: primary, paddingTop: insets.top },
         ]}
       >
-        <View style={styles.headerLeft}>
-          {logo ? (
-            <Image
-              source={{ uri: logo }}
-              style={styles.logo}
-              resizeMode="contain"
-            />
-          ) : (
-            <View style={styles.logoPlaceholder} />
-          )}
-        </View>
+        <View style={styles.headerTop}>
+          <View style={styles.headerLeft}>
+            {logo ? (
+              <Image
+                source={{ uri: logo }}
+                style={styles.logo}
+                resizeMode="contain"
+              />
+            ) : (
+              <View
+                style={[
+                  styles.logoPlaceholder,
+                  { borderColor: secondary, borderWidth: 2 },
+                ]}
+              />
+            )}
+          </View>
 
-        <View style={styles.headerRight}>
-          <TouchableOpacity
-            style={styles.iconButton}
-            onPress={() => setShowNotifications(true)}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="notifications-outline" size={22} color="#fff" />
-            <View style={[styles.badge, { backgroundColor: secondary }]}>
-              <Text style={styles.badgeText}>
-                {notifications.filter((n) => !n.read).length}
-              </Text>
-            </View>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.iconButton}
-            onPress={() => router.push("/Member-User/profile")}
-          >
-            <Ionicons name="person-circle-outline" size={26} color="#fff" />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-        <View style={styles.section}>
-          <View style={[styles.searchBar, { borderColor: "#e0e5df" }]}>
-            <Ionicons name="search" size={18} color="#8FA28E" />
-            <TextInput
-              placeholder="Search events"
-              placeholderTextColor="#8FA28E"
-              style={styles.searchInput}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-            />
+          <View style={styles.headerRight}>
+            <TouchableOpacity style={styles.iconButton} activeOpacity={0.7}>
+              <Ionicons name="notifications-outline" size={24} color="#fff" />
+              <View style={[styles.badge, { backgroundColor: secondary }]}>
+                <Text style={styles.badgeText}>
+                  {notifications.filter((n) => !n.read).length}
+                </Text>
+              </View>
+            </TouchableOpacity>
           </View>
         </View>
 
-        <View style={[styles.section, { marginTop: -4 }]}>
-          <Text style={styles.sectionTitle}>Our Branches</Text>
+        <View style={styles.headerSearchArea}>
+          <View
+            style={[
+              styles.searchBar,
+              {
+                borderColor: searchFocused
+                  ? "rgba(255,255,255,0.3)"
+                  : "rgba(255,255,255,0.2)",
+                backgroundColor: "rgba(255,255,255,0.15)",
+              },
+            ]}
+          >
+            <Ionicons name="search" size={20} color="#fff" />
+            <TextInput
+              placeholder="Search events, location, or keywords"
+              placeholderTextColor="rgba(255,255,255,0.7)"
+              style={[styles.searchInput, { color: "#fff" }]}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => setSearchFocused(false)}
+            />
+            {searchFocused && (
+              <TouchableOpacity onPress={() => setSearchFocused(false)}>
+                <Ionicons
+                  name="close-circle"
+                  size={20}
+                  color="rgba(255,255,255,0.7)"
+                />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </View>
+
+      <ScrollView showsVerticalScrollIndicator={false} style={styles.body}>
+        <View style={[styles.filterCard, cardShadow]}>
+          <View style={styles.filterRowAligned}>
+            <View style={styles.filterField}>
+              <Text style={styles.filterLabel}>Branch</Text>
+              <TouchableOpacity
+                style={styles.selectShell}
+                activeOpacity={0.8}
+                onPress={() =>
+                  setOpenDropdown((prev) =>
+                    prev === "branch" ? null : "branch",
+                  )
+                }
+              >
+                <Text style={styles.selectText} numberOfLines={1}>
+                  {selectedBranchLabel}
+                </Text>
+                <Ionicons name="chevron-down" size={16} color="#4c5a51" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.filterField}>
+              <Text style={styles.filterLabel}>Date</Text>
+              <TouchableOpacity
+                style={styles.selectShell}
+                activeOpacity={0.8}
+                onPress={() =>
+                  setOpenDropdown((prev) => (prev === "date" ? null : "date"))
+                }
+              >
+                <Text style={styles.selectText} numberOfLines={1}>
+                  {selectedDate}
+                </Text>
+                <Ionicons name="chevron-down" size={16} color="#4c5a51" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.filterField}>
+              <Text style={styles.filterLabel}>Type</Text>
+              <TouchableOpacity
+                style={styles.selectShell}
+                activeOpacity={0.8}
+                onPress={() =>
+                  setOpenDropdown((prev) => (prev === "type" ? null : "type"))
+                }
+              >
+                <Text style={styles.selectText} numberOfLines={1}>
+                  {selectedType}
+                </Text>
+                <Ionicons name="chevron-down" size={16} color="#4c5a51" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Recommended for you</Text>
+        </View>
+        {recommendations.length === 0 ? (
+          <Text style={styles.emptyText}>
+            We will show nearby and suggested events here.
+          </Text>
+        ) : (
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ gap: 10, paddingVertical: 6 }}
+            contentContainerStyle={styles.recommendationsRow}
           >
-            {["All", ...branches].map((branch) => {
-              const isActive =
-                branch === "All"
-                  ? selectedBranch === null
-                  : selectedBranch === branch;
-              const label = branch === "All" ? "All Branches" : branch;
+            {recommendations.map((rec) => {
+              const img = getEventImageUrl(rec.event.cover_image_path);
               return (
                 <TouchableOpacity
-                  key={branch}
-                  activeOpacity={0.85}
-                  onPress={() =>
-                    setSelectedBranch(branch === "All" ? null : branch)
-                  }
-                  style={[
-                    styles.branchChip,
-                    {
-                      borderColor: isActive ? secondary : "#e0e5df",
-                      backgroundColor: "#fff",
-                    },
-                  ]}
+                  key={rec.key}
+                  style={[styles.recommendationCard, cardShadow]}
+                  activeOpacity={0.9}
+                  onPress={() => openEventDetails(rec.event.event_id)}
+                  disabled={!rec.event.event_id}
                 >
-                  <Ionicons
-                    name="location-outline"
-                    size={14}
-                    color={isActive ? secondary : "#556857"}
-                  />
-                  <Text
-                    style={[
-                      styles.branchText,
-                      { color: isActive ? secondary : "#2c3a2c" },
-                    ]}
-                  >
-                    {label}
-                  </Text>
+                  {img ? (
+                    <Image
+                      source={{ uri: img }}
+                      style={styles.recommendationImage}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View style={styles.recommendationImagePlaceholder}>
+                      <Text style={styles.recommendationPlaceholderText}>
+                        No Image
+                      </Text>
+                    </View>
+                  )}
+                  <View style={styles.recommendationBody}>
+                    <Text style={styles.recommendationLabel}>{rec.label}</Text>
+                    <Text style={styles.recommendationTitle} numberOfLines={2}>
+                      {rec.event.title}
+                    </Text>
+                    <Text style={styles.recommendationMeta}>
+                      {formatDateLong(rec.event.start_datetime)}
+                    </Text>
+                  </View>
                 </TouchableOpacity>
               );
             })}
           </ScrollView>
+        )}
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>All Events</Text>
+          <Text style={styles.sectionCount}>{filteredEvents.length}</Text>
         </View>
 
-        <View style={[styles.section, { marginTop: -8 }]}>
-          <View
-            style={[
-              styles.recommendCard,
-              { borderColor: "#e0e5df", backgroundColor: "#fff" },
-            ]}
-          >
-            <Text style={styles.recommendTitle}>
-              Nearest church activity near you
-            </Text>
-            <Text style={styles.recommendSubtitle} numberOfLines={3}>
-              Based on your recent visit, the closest branch is {nearestBranch}.
-              We recommend joining {recommendedNearestEvent.title} on{" "}
-              {recommendedNearestEvent.date} at {recommendedNearestEvent.time}{" "}
-              in {recommendedNearestEvent.location}. Tap below if you want to
-              join again and stay linked to your previous activity.
-            </Text>
-            <TouchableOpacity
-              style={[styles.recommendButton, { backgroundColor: secondary }]}
-              activeOpacity={0.9}
-              disabled={recommendedNearestEvent.id === 0}
-              onPress={() =>
-                router.push({
-                  pathname: "/Member-User/event-details",
-                  params: {
-                    id: String(recommendedNearestEvent.id),
-                    title: recommendedNearestEvent.title,
-                    subtitle: recommendedNearestEvent.subtitle,
-                    date: recommendedNearestEvent.date,
-                    time: recommendedNearestEvent.time,
-                    location: recommendedNearestEvent.location,
-                    image: recommendedNearestEvent.image,
-                  },
-                })
-              }
-            >
-              <Text style={styles.recommendButtonText}>Join this activity</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <View style={[styles.section, { marginTop: -8 }]}>
-          <View
-            style={[
-              styles.recommendCard,
-              { borderColor: "#e0e5df", backgroundColor: "#fff" },
-            ]}
-          >
-            <Text style={styles.recommendTitle}>
-              You might be interested in
-            </Text>
-            <Text style={styles.recommendSubtitle} numberOfLines={3}>
-              Here is another activity you may like: {interestEvent.title} on{" "}
-              {interestEvent.date} at {interestEvent.time} in{" "}
-              {interestEvent.location}. Join to build on your previous activity
-              streak.
-            </Text>
-            <TouchableOpacity
-              style={[styles.recommendButton, { backgroundColor: secondary }]}
-              activeOpacity={0.9}
-              disabled={interestEvent.id === 0}
-              onPress={() =>
-                router.push({
-                  pathname: "/Member-User/event-details",
-                  params: {
-                    id: String(interestEvent.id),
-                    title: interestEvent.title,
-                    subtitle: interestEvent.subtitle,
-                    date: interestEvent.date,
-                    time: interestEvent.time,
-                    location: interestEvent.location,
-                    image: interestEvent.image,
-                  },
-                })
-              }
-            >
-              <Text style={styles.recommendButtonText}>View this activity</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <View style={[styles.section, { marginTop: -4 }]}>
-          <View style={styles.filterRow}>
-            <TouchableOpacity
-              onPress={() => setShowDateFilter(true)}
-              style={[
-                styles.filterChip,
-                {
-                  borderColor: selectedDate ? secondary : "#e0e5df",
-                  backgroundColor: selectedDate ? `${secondary}15` : "#fff",
-                },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.filterText,
-                  {
-                    color: selectedDate ? secondary : "#556857",
-                    fontWeight: selectedDate ? "700" : "500",
-                  },
-                ]}
+        {loading ? (
+          <Text style={styles.emptyText}>Loading events...</Text>
+        ) : filteredEvents.length === 0 ? (
+          <Text style={styles.emptyText}>No events match your filters.</Text>
+        ) : (
+          filteredEvents.map((ev) => {
+            const img = getEventImageUrl(ev.cover_image_path);
+            return (
+              <TouchableOpacity
+                key={ev.key}
+                style={[styles.eventCardClean, cardShadow]}
+                activeOpacity={0.9}
+                onPress={() => openEventDetails(ev.event_id)}
+                disabled={!ev.event_id}
               >
-                {selectedDate ? selectedDate : "Date"}
-              </Text>
-              <Ionicons
-                name="chevron-down"
-                size={14}
-                color={selectedDate ? secondary : "#556857"}
-              />
-            </TouchableOpacity>
+                <View style={styles.eventCardLeft}>
+                  <Text style={styles.eventCardDate}>
+                    {formatDateLong(ev.start_datetime)}
+                  </Text>
+                  <Text style={styles.eventCardTitle} numberOfLines={2}>
+                    {ev.title}
+                  </Text>
+                  <Text style={styles.eventCardDesc} numberOfLines={2}>
+                    {ev.description || "Join us for this event."}
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.eventCardButton}
+                    activeOpacity={0.8}
+                    onPress={() => openEventDetails(ev.event_id)}
+                    disabled={!ev.event_id}
+                  >
+                    <Text style={styles.eventCardButtonText}>View</Text>
+                  </TouchableOpacity>
+                </View>
+                {img ? (
+                  <Image
+                    source={{ uri: img }}
+                    style={styles.eventCardImage}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={styles.eventCardImagePlaceholder} />
+                )}
+              </TouchableOpacity>
+            );
+          })
+        )}
 
-            <TouchableOpacity
-              onPress={() => setShowTypeFilter(true)}
-              style={[
-                styles.filterChip,
-                {
-                  borderColor: selectedType ? secondary : "#e0e5df",
-                  backgroundColor: selectedType ? `${secondary}15` : "#fff",
-                },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.filterText,
-                  {
-                    color: selectedType ? secondary : "#556857",
-                    fontWeight: selectedType ? "700" : "500",
-                  },
-                ]}
-              >
-                {selectedType ? selectedType : "Type"}
-              </Text>
-              <Ionicons
-                name="chevron-down"
-                size={14}
-                color={selectedType ? secondary : "#556857"}
-              />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={() => setShowCategoryFilter(true)}
-              style={[
-                styles.filterChip,
-                {
-                  borderColor: selectedCategory ? secondary : "#e0e5df",
-                  backgroundColor: selectedCategory ? `${secondary}15` : "#fff",
-                },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.filterText,
-                  {
-                    color: selectedCategory ? secondary : "#556857",
-                    fontWeight: selectedCategory ? "700" : "500",
-                  },
-                ]}
-              >
-                {selectedCategory ? selectedCategory : "Category"}
-              </Text>
-              <Ionicons
-                name="chevron-down"
-                size={14}
-                color={selectedCategory ? secondary : "#556857"}
-              />
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <View style={[styles.section, { marginTop: -4 }]}>
-          <Text style={styles.sectionTitle}>Upcoming Events</Text>
-        </View>
-
-        {eventsLoading ? (
-          <Text style={{ paddingHorizontal: 16, color: "#556857" }}>
-            Loading events...
-          </Text>
-        ) : null}
-
-        <FlatList
-          data={filteredEvents}
-          keyExtractor={(item) => item.id.toString()}
-          scrollEnabled={false}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24 }}
-          ItemSeparatorComponent={() => <View style={{ height: 14 }} />}
-          renderItem={renderEvent}
-        />
-
-        <View style={{ height: 12 }} />
+        <View style={styles.bottomSpacer} />
       </ScrollView>
 
-      {/* Date Filter Modal */}
-      <Modal
-        visible={showDateFilter}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowDateFilter(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.filterModalContent}>
-            <View style={styles.filterModalHeader}>
-              <Text style={styles.filterModalTitle}>Filter by Date</Text>
-              <TouchableOpacity onPress={() => setShowDateFilter(false)}>
-                <Ionicons name="close" size={28} color="#000" />
-              </TouchableOpacity>
-            </View>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {eventDates.map((date) => {
-                const isActive = selectedDate === date;
-                return (
-                  <TouchableOpacity
-                    key={date}
-                    onPress={() => {
-                      setSelectedDate(isActive ? null : date);
-                      setShowDateFilter(false);
-                    }}
-                    style={[
-                      styles.filterOption,
-                      { backgroundColor: isActive ? `${secondary}15` : "#fff" },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.filterOptionText,
-                        {
-                          color: isActive ? secondary : "#333",
-                          fontWeight: isActive ? "700" : "500",
-                        },
-                      ]}
-                    >
-                      {date}
-                    </Text>
-                    {isActive && (
-                      <Ionicons name="checkmark" size={20} color={secondary} />
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Type Filter Modal */}
-      <Modal
-        visible={showTypeFilter}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowTypeFilter(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.filterModalContent}>
-            <View style={styles.filterModalHeader}>
-              <Text style={styles.filterModalTitle}>Filter by Type</Text>
-              <TouchableOpacity onPress={() => setShowTypeFilter(false)}>
-                <Ionicons name="close" size={28} color="#000" />
-              </TouchableOpacity>
-            </View>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {eventTypes.map((type) => {
-                const isActive = selectedType === type;
-                return (
-                  <TouchableOpacity
-                    key={type}
-                    onPress={() => {
-                      setSelectedType(isActive ? null : type);
-                      setShowTypeFilter(false);
-                    }}
-                    style={[
-                      styles.filterOption,
-                      { backgroundColor: isActive ? `${secondary}15` : "#fff" },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.filterOptionText,
-                        {
-                          color: isActive ? secondary : "#333",
-                          fontWeight: isActive ? "700" : "500",
-                        },
-                      ]}
-                    >
-                      {type}
-                    </Text>
-                    {isActive && (
-                      <Ionicons name="checkmark" size={20} color={secondary} />
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Category Filter Modal */}
-      <Modal
-        visible={showCategoryFilter}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowCategoryFilter(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.filterModalContent}>
-            <View style={styles.filterModalHeader}>
-              <Text style={styles.filterModalTitle}>Filter by Category</Text>
-              <TouchableOpacity onPress={() => setShowCategoryFilter(false)}>
-                <Ionicons name="close" size={28} color="#000" />
-              </TouchableOpacity>
-            </View>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {eventCategories.map((category) => {
-                const isActive = selectedCategory === category;
-                return (
-                  <TouchableOpacity
-                    key={category}
-                    onPress={() => {
-                      setSelectedCategory(isActive ? null : category);
-                      setShowCategoryFilter(false);
-                    }}
-                    style={[
-                      styles.filterOption,
-                      { backgroundColor: isActive ? `${secondary}15` : "#fff" },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.filterOptionText,
-                        {
-                          color: isActive ? secondary : "#333",
-                          fontWeight: isActive ? "700" : "500",
-                        },
-                      ]}
-                    >
-                      {category}
-                    </Text>
-                    {isActive && (
-                      <Ionicons name="checkmark" size={20} color={secondary} />
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+      <MemberNavbar />
 
       <Modal
-        visible={showNotifications}
         transparent
-        animationType="slide"
-        onRequestClose={() => setShowNotifications(false)}
+        visible={openDropdown !== null}
+        animationType="fade"
+        onRequestClose={() => setOpenDropdown(null)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.notificationsModalContent}>
-            <View style={styles.notificationsHeader}>
-              <Text style={styles.notificationsTitle}>Notifications</Text>
-              <TouchableOpacity onPress={() => setShowNotifications(false)}>
-                <Ionicons name="close" size={28} color="#000" />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {notifications.map((notif) => (
+        <TouchableOpacity
+          style={styles.dropdownBackdrop}
+          activeOpacity={1}
+          onPress={() => setOpenDropdown(null)}
+        >
+          <View style={styles.dropdownSheet}>
+            {openDropdown === "branch" && (
+              <>
                 <TouchableOpacity
-                  key={notif.id}
-                  style={[
-                    styles.notificationItem,
-                    { backgroundColor: notif.read ? "#fff" : `${primary}08` },
-                  ]}
-                  activeOpacity={0.8}
+                  style={styles.dropdownItem}
+                  onPress={() => {
+                    setSelectedBranchId(null);
+                    setOpenDropdown(null);
+                  }}
                 >
-                  <View
-                    style={[
-                      styles.notificationIcon,
-                      { backgroundColor: `${primary}20` },
-                    ]}
+                  <Text style={styles.dropdownItemText}>All</Text>
+                </TouchableOpacity>
+                {branches.map((b) => (
+                  <TouchableOpacity
+                    key={b.id}
+                    style={styles.dropdownItem}
+                    onPress={() => {
+                      setSelectedBranchId(b.id);
+                      setOpenDropdown(null);
+                    }}
                   >
-                    <Ionicons
-                      name={notif.icon as any}
-                      size={22}
-                      color={primary}
-                    />
-                  </View>
-                  <View style={styles.notificationContent}>
-                    <View style={styles.notificationHeader}>
-                      <Text style={styles.notificationTitle}>
-                        {notif.title}
-                      </Text>
-                      {!notif.read && (
-                        <View
-                          style={[
-                            styles.unreadDot,
-                            { backgroundColor: secondary },
-                          ]}
-                        />
-                      )}
-                    </View>
-                    <Text style={styles.notificationMessage}>
-                      {notif.message}
-                    </Text>
-                    <Text style={styles.notificationTime}>{notif.time}</Text>
-                  </View>
+                    <Text style={styles.dropdownItemText}>{b.name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </>
+            )}
+
+            {openDropdown === "date" &&
+              DATE_FILTERS.map((opt) => (
+                <TouchableOpacity
+                  key={opt}
+                  style={styles.dropdownItem}
+                  onPress={() => {
+                    setSelectedDate(opt);
+                    setOpenDropdown(null);
+                  }}
+                >
+                  <Text style={styles.dropdownItemText}>{opt}</Text>
                 </TouchableOpacity>
               ))}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
 
-      <MemberNavbar />
+            {openDropdown === "type" &&
+              eventTypes.map((opt) => (
+                <TouchableOpacity
+                  key={opt}
+                  style={styles.dropdownItem}
+                  onPress={() => {
+                    setSelectedType(opt);
+                    setOpenDropdown(null);
+                  }}
+                >
+                  <Text style={styles.dropdownItemText}>{opt}</Text>
+                </TouchableOpacity>
+              ))}
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: "#f3f6f4",
+  },
   header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingTop: 16,
-    paddingBottom: 16,
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
+  },
+  headerTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 5,
   },
   headerLeft: {
     width: 40,
@@ -894,14 +1022,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.3)",
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#fff",
-    flex: 1,
-    textAlign: "center",
+    backgroundColor: "rgba(255,255,255,0.1)",
   },
   headerRight: {
     flexDirection: "row",
@@ -910,145 +1031,12 @@ const styles = StyleSheet.create({
   },
   iconButton: {
     padding: 8,
-  },
-  container: {
-    flex: 1,
-  },
-  section: {
-    paddingHorizontal: 16,
-    marginBottom: 12,
-  },
-  searchBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 10,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 14,
-    color: "#2c3a2c",
-  },
-  filterRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  filterChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    borderWidth: 1,
-    borderRadius: 12,
-    backgroundColor: "#fff",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  filterText: {
-    fontSize: 13,
-    color: "#2c3a2c",
-    fontWeight: "600",
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#1f2a1f",
-  },
-  card: {
-    flexDirection: "row",
-    backgroundColor: "#fff",
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 12,
-    minHeight: 120,
-    shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  cardDate: {
-    fontSize: 12,
-    marginBottom: 6,
-  },
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#1f2a1f",
-    marginBottom: 6,
-  },
-  cardSubtitle: {
-    fontSize: 13,
-    color: "#4f5d4f",
-    lineHeight: 18,
-  },
-  viewBtn: {
-    marginTop: 10,
-    alignSelf: "flex-start",
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: "#fff",
-  },
-  viewBtnText: {
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  cardImage: {
-    width: width * 0.3,
-    height: 110,
-    borderRadius: 12,
-    backgroundColor: "#dfe5df",
-  },
-  branchChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    backgroundColor: "#fff",
-  },
-  branchText: {
-    fontSize: 13,
-    color: "#2c3a2c",
-    fontWeight: "700",
-  },
-  recommendCard: {
-    borderWidth: 1,
-    borderRadius: 14,
-    padding: 14,
-    gap: 10,
-  },
-  recommendTitle: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#1f2a1f",
-  },
-  recommendSubtitle: {
-    fontSize: 13,
-    color: "#4f5d4f",
-    lineHeight: 18,
-  },
-  recommendButton: {
-    alignSelf: "flex-start",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 10,
-  },
-  recommendButtonText: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#fff",
+    position: "relative",
   },
   badge: {
     position: "absolute",
-    top: 2,
-    right: 0,
+    top: 4,
+    right: 4,
     minWidth: 16,
     height: 16,
     borderRadius: 8,
@@ -1061,109 +1049,234 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "700",
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 16,
+  headerSearchArea: {
+    paddingBottom: 14,
   },
-  notificationsModalContent: {
-    width: "100%",
-    maxWidth: 420,
-    maxHeight: "80%",
+  filterCard: {
+    marginTop: 12,
+    marginBottom: 8,
+    padding: 12,
+    borderRadius: 12,
     backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 16,
+    borderWidth: 1,
+    borderColor: "#e3e7e5",
   },
-  notificationsHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  notificationsTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#000",
-  },
-  notificationItem: {
-    flexDirection: "row",
-    gap: 12,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
-  },
-  notificationIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  notificationContent: {
+  searchInput: {
     flex: 1,
-  },
-  notificationHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  notificationTitle: {
+    marginLeft: 10,
     fontSize: 14,
-    fontWeight: "700",
-    color: "#111",
   },
-  unreadDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  notificationMessage: {
-    fontSize: 13,
-    color: "#444",
-    marginTop: 4,
-  },
-  notificationTime: {
-    fontSize: 12,
-    color: "#888",
-    marginTop: 6,
-  },
-  filterModalContent: {
-    width: "100%",
-    maxWidth: 420,
-    maxHeight: "70%",
-    backgroundColor: "#fff",
+  searchBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1.5,
     borderRadius: 16,
-    paddingVertical: 16,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
-  filterModalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
-  },
-  filterModalTitle: {
-    fontSize: 18,
+  filterLabel: {
+    marginBottom: 4,
+    fontSize: 10,
     fontWeight: "700",
-    color: "#000",
+    letterSpacing: 0.4,
+    color: "#5f6a64",
+    textTransform: "uppercase",
   },
-  filterOption: {
+  filterRowAligned: {
+    flexDirection: "row",
+    gap: 10,
+    alignItems: "center",
+  },
+  filterField: {
+    flex: 1,
+    minWidth: 0,
+  },
+  selectShell: {
+    height: 40,
+    borderWidth: 1,
+    borderColor: "#e1e5e2",
+    borderRadius: 10,
+    backgroundColor: "#fff",
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  selectText: {
+    fontSize: 13,
+    color: "#1f2a1f",
+  },
+  dropdownBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.25)",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+  },
+  dropdownSheet: {
+    backgroundColor: "#fff",
+    borderRadius: 14,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: "#e3e7e5",
+    maxHeight: "70%",
+  },
+  dropdownItem: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  dropdownItemText: {
+    fontSize: 14,
+    color: "#1f2a1f",
+  },
+  actionChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderWidth: 1,
+    borderRadius: 25,
+    height: 40,
+    paddingHorizontal: 12,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    marginRight: 8,
+  },
+  actionChipIcon: {
+    width: 20,
+    height: 20,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  actionChipText: {
+    fontSize: 9,
+    fontWeight: "600",
+  },
+  body: {
+    paddingHorizontal: 16,
+  },
+  sectionHeader: {
+    marginTop: 8,
+    marginBottom: 10,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f5f5f5",
   },
-  filterOptionText: {
-    fontSize: 15,
-    color: "#333",
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#1a1f1c",
+  },
+  sectionCount: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#5c665f",
+  },
+  emptyText: {
+    fontSize: 13,
+    color: "#6b756e",
+    marginBottom: 10,
+  },
+  recommendationsRow: {
+    paddingBottom: 8,
+    gap: 12,
+  },
+  recommendationCard: {
+    width: 220,
+    borderRadius: 16,
+    backgroundColor: "#fff",
+    overflow: "hidden",
+  },
+  recommendationImage: {
+    width: "100%",
+    height: 120,
+  },
+  recommendationImagePlaceholder: {
+    width: "100%",
+    height: 120,
+    backgroundColor: "#e7ece8",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  recommendationPlaceholderText: {
+    fontSize: 12,
+    color: "#8a9590",
+  },
+  recommendationBody: {
+    padding: 12,
+  },
+  recommendationLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#0f5a2c",
+    marginBottom: 6,
+  },
+  recommendationTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#1f2a1f",
+  },
+  recommendationMeta: {
+    marginTop: 6,
+    fontSize: 12,
+    color: "#6f7b73",
+  },
+  eventCardClean: {
+    marginBottom: 12,
+    borderRadius: 16,
+    backgroundColor: "#fff",
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderWidth: 1,
+    borderColor: "#e4e9e6",
+  },
+  eventCardLeft: {
+    flex: 1,
+  },
+  eventCardDate: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#7a857d",
+    marginBottom: 4,
+  },
+  eventCardTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#1f2a1f",
+    marginBottom: 6,
+  },
+  eventCardDesc: {
+    fontSize: 12,
+    color: "#6b756e",
+    marginBottom: 10,
+  },
+  eventCardButton: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: "#f1f4f2",
+    borderWidth: 1,
+    borderColor: "#d5dcd8",
+  },
+  eventCardButtonText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#4b5a51",
+  },
+  eventCardImage: {
+    width: 84,
+    height: 84,
+    borderRadius: 12,
+    backgroundColor: "#e6ece8",
+  },
+  eventCardImagePlaceholder: {
+    width: 84,
+    height: 84,
+    borderRadius: 12,
+    backgroundColor: "#e6ece8",
+  },
+  bottomSpacer: {
+    height: 120,
   },
 });

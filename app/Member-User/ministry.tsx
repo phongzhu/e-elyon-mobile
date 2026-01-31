@@ -70,7 +70,9 @@ const fmtDateTime = (v?: string | null) => {
 };
 
 const normalizeGender = (v: any) => {
-  const s = String(v ?? "").trim().toLowerCase();
+  const s = String(v ?? "")
+    .trim()
+    .toLowerCase();
   if (s === "male" || s === "m") return "Male";
   if (s === "female" || s === "f") return "Female";
   return null;
@@ -122,7 +124,10 @@ const passesAgeRange = (cfg: any, profile: any) => {
   return true;
 };
 
-const normRel = (v: any) => String(v ?? "").trim().toLowerCase();
+const normRel = (v: any) =>
+  String(v ?? "")
+    .trim()
+    .toLowerCase();
 
 const passesFamilyRelation = (
   cfg: any,
@@ -433,7 +438,9 @@ export default function MinistryScreen() {
         .select(
           "owner_auth_user_id, family_auth_user_id, status, relationship_owner, relationship_family",
         )
-        .or(`owner_auth_user_id.eq.${authUid},family_auth_user_id.eq.${authUid}`);
+        .or(
+          `owner_auth_user_id.eq.${authUid},family_auth_user_id.eq.${authUid}`,
+        );
       if (fErr) throw fErr;
       const confirmed = (fam || []).filter((r) => {
         const s = String(r.status || "").toLowerCase();
@@ -571,35 +578,47 @@ export default function MinistryScreen() {
       const authUid = authRes?.user?.id;
       if (!authUid) throw new Error("No authenticated user.");
 
-      const { data, error } = await supabase
-        .from("ministry_task_assignees")
-        .select(
-          `
-          task_id,
-          response_status,
-          decline_reason,
-          response_reason,
-          responded_at,
-          assigned_at,
-          slot_id,
-          task:ministry_activity_tasks(
-            task_id, activity_id, title, details, location, priority, status, task_start, task_end,
-            activity:ministry_activities(activity_id, branch_ministry_id, title, planned_start, planned_end, location, status)
+      let merged: any[] = [];
+      const { data: rpcData, error: rpcErr } = await supabase.rpc(
+        "rpc_member_assigned_tasks",
+      );
+      if (!rpcErr && Array.isArray(rpcData)) {
+        merged = rpcData;
+      } else {
+        const { data, error } = await supabase
+          .from("ministry_task_assignees")
+          .select(
+            `
+            task_id,
+            response_status,
+            decline_reason,
+            response_reason,
+            responded_at,
+            assigned_at,
+            slot_id,
+            task:ministry_activity_tasks(
+              task_id, activity_id, title, details, location, priority, status, task_start, task_end,
+              activity:ministry_activities(
+                activity_id, branch_ministry_id, title, planned_start, planned_end, location, status,
+                event:events(title, start_datetime, end_datetime, location),
+                series:event_series(title, starts_on, ends_on, start_time, end_time, location)
+              )
+            )
+          `,
           )
-        `,
-        )
-        .eq("assignee_auth_user_id", authUid)
-        .order("assigned_at", { ascending: false });
+          .eq("assignee_auth_user_id", authUid)
+          .order("assigned_at", { ascending: false });
 
-      if (error) throw error;
+        if (error) throw error;
 
-      const merged = (data ?? [])
-        .filter((r: any) => r.task)
-        .map((row: any) => ({
-          ...row,
-          task: row.task,
-          activity: row.task?.activity || null,
-        }));
+        merged = (data ?? [])
+          .filter((r: any) => r.task)
+          .map((row: any) => ({
+            ...row,
+            task: row.task,
+            activity: row.task?.activity || null,
+          }));
+      }
 
       merged.sort((x: any, y: any) => {
         const ax = new Date(x?.task?.task_start || 0).getTime();
@@ -617,9 +636,7 @@ export default function MinistryScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      if (yourMinistries.length > 0) {
-        void loadMyAssignedTasks();
-      }
+      void loadMyAssignedTasks();
     }, [yourMinistries.length, loadMyAssignedTasks]),
   );
 
@@ -641,9 +658,34 @@ export default function MinistryScreen() {
         response_reason: reason?.trim() || null,
       };
 
-    if (action === "Declined") {
-      payload.decline_reason = reason?.trim() || null;
-    }
+      if (action === "Declined") {
+        payload.decline_reason = reason?.trim() || null;
+      }
+
+      // Ensure slot_id is valid for this task; clear it if the slot no longer exists
+      try {
+        const { data: currentRow, error: rowErr } = await supabase
+          .from("ministry_task_assignees")
+          .select("slot_id")
+          .eq("task_id", taskId)
+          .eq("assignee_auth_user_id", authUid)
+          .maybeSingle();
+        if (rowErr) throw rowErr;
+
+        const slotId = currentRow?.slot_id ?? null;
+        if (slotId) {
+          const { data: slotRow, error: slotErr } = await supabase
+            .from("ministry_task_role_slots")
+            .select("slot_id")
+            .eq("slot_id", slotId)
+            .maybeSingle();
+          if (slotErr) throw slotErr;
+          if (!slotRow) payload.slot_id = null;
+        }
+      } catch (e) {
+        console.warn("slot_id validation failed, clearing slot_id:", e);
+        payload.slot_id = null;
+      }
 
       const { error } = await supabase
         .from("ministry_task_assignees")
@@ -836,10 +878,7 @@ export default function MinistryScreen() {
           r.is_required !== false
         ) {
           const authId = applicantProfile?.auth_user_id;
-          if (
-            !authId ||
-            !passesFamilyRelation(cfg, authId, applicantFamily)
-          ) {
+          if (!authId || !passesFamilyRelation(cfg, authId, applicantFamily)) {
             throw new Error(`You do not meet the family requirement: ${title}`);
           }
         }
@@ -941,7 +980,9 @@ export default function MinistryScreen() {
           const authId = applicantProfile?.auth_user_id;
           answerToSave = {
             computed: true,
-            pass: authId ? passesFamilyRelation(cfg, authId, applicantFamily) : false,
+            pass: authId
+              ? passesFamilyRelation(cfg, authId, applicantFamily)
+              : false,
           };
         }
 
@@ -1019,8 +1060,6 @@ export default function MinistryScreen() {
           )}
         </View>
 
-        <Text style={styles.headerTitle}>Ministry</Text>
-
         <View style={styles.headerRight}>
           <TouchableOpacity
             style={styles.iconButton}
@@ -1029,20 +1068,13 @@ export default function MinistryScreen() {
           >
             <Ionicons name="notifications-outline" size={22} color="#fff" />
           </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.iconButton}
-            onPress={() => router.push("/Member-User/profile")}
-          >
-            <Ionicons name="person-circle-outline" size={26} color="#fff" />
-          </TouchableOpacity>
         </View>
       </View>
 
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      {loadingBoot ? (
-        <View style={{ paddingVertical: 24 }}>
-          <ActivityIndicator />
+        {loadingBoot ? (
+          <View style={{ paddingVertical: 24 }}>
+            <ActivityIndicator />
             <Text style={{ marginTop: 10, color: "#666", textAlign: "center" }}>
               Loading your account…
             </Text>
@@ -1156,7 +1188,8 @@ export default function MinistryScreen() {
                             fontSize: 12,
                           }}
                         >
-                          View My Tasks{pendingCount > 0 ? ` (${pendingCount})` : ""}
+                          View My Tasks
+                          {pendingCount > 0 ? ` (${pendingCount})` : ""}
                         </Text>
                       </TouchableOpacity>
                     ) : null}
@@ -1172,7 +1205,9 @@ export default function MinistryScreen() {
                       const ministry = j.branch_ministry?.ministry;
                       const branch = j.branch_ministry?.branch;
                       const name = ministry?.name || "Ministry";
-                      const branchName = branch?.name ? ` – ${branch.name}` : "";
+                      const branchName = branch?.name
+                        ? ` – ${branch.name}`
+                        : "";
                       const bmId = j.branch_ministry?.branch_ministry_id;
                       const app = bmId
                         ? applicationMap.get(Number(bmId))
@@ -1266,178 +1301,203 @@ export default function MinistryScreen() {
                       myApplications
                         .filter(
                           (a) =>
-                            safeText(a?.status, "").toLowerCase() !== "approved",
+                            safeText(a?.status, "").toLowerCase() !==
+                            "approved",
                         )
                         .map((a) => {
-                        const ministry = a.branch_ministry?.ministry;
-                        const branch = a.branch_ministry?.branch;
-                        const name = ministry?.name || "Ministry";
-                        const branchName = branch?.name ? ` – ${branch.name}` : "";
-                        const status = safeText(a.status, "");
-                        const submitted = a.submitted_at
-                          ? new Date(a.submitted_at).toLocaleDateString()
-                          : "";
-                        const isApproved = status.toLowerCase() === "approved";
-                        const isRejected = status.toLowerCase() === "rejected";
-                        const isDraft = status.toLowerCase() === "draft";
-                        const isSubmitted =
-                          status.toLowerCase() === "submitted" ||
-                          status.toLowerCase() === "underreview";
-                        const canView = !isDraft;
-                        return (
-                          <View
-                            key={a.application_id}
-                            style={[
-                              styles.myMinistryPill,
-                              {
-                                borderColor: isApproved
-                                  ? "#4ade80"
-                                  : isRejected
-                                    ? "#fecaca"
-                                    : `${secondary}40`,
-                                backgroundColor: isRejected ? "#fef2f2" : "#fff",
-                              },
-                            ]}
-                          >
-                            <Text style={{ fontWeight: "800", color: "#111" }}>
-                              {name}
-                              {branchName}
-                            </Text>
-                            <Text
-                              style={{
-                                color: isApproved
-                                  ? "#166534"
-                                  : isRejected
-                                    ? "#b91c1c"
-                                    : "#666",
-                                marginTop: 2,
-                                fontWeight: "700",
-                              }}
+                          const ministry = a.branch_ministry?.ministry;
+                          const branch = a.branch_ministry?.branch;
+                          const name = ministry?.name || "Ministry";
+                          const branchName = branch?.name
+                            ? ` – ${branch.name}`
+                            : "";
+                          const status = safeText(a.status, "");
+                          const submitted = a.submitted_at
+                            ? new Date(a.submitted_at).toLocaleDateString()
+                            : "";
+                          const isApproved =
+                            status.toLowerCase() === "approved";
+                          const isRejected =
+                            status.toLowerCase() === "rejected";
+                          const isDraft = status.toLowerCase() === "draft";
+                          const isSubmitted =
+                            status.toLowerCase() === "submitted" ||
+                            status.toLowerCase() === "underreview";
+                          const canView = !isDraft;
+                          return (
+                            <View
+                              key={a.application_id}
+                              style={[
+                                styles.myMinistryPill,
+                                {
+                                  borderColor: isApproved
+                                    ? "#4ade80"
+                                    : isRejected
+                                      ? "#fecaca"
+                                      : `${secondary}40`,
+                                  backgroundColor: isRejected
+                                    ? "#fef2f2"
+                                    : "#fff",
+                                },
+                              ]}
                             >
-                              {status}
-                              {submitted ? ` • ${submitted}` : ""}
-                            </Text>
-                            {isRejected && a.reviewer_notes ? (
+                              <Text
+                                style={{ fontWeight: "800", color: "#111" }}
+                              >
+                                {name}
+                                {branchName}
+                              </Text>
                               <Text
                                 style={{
-                                  color: "#b91c1c",
-                                  marginTop: 4,
-                                  fontSize: 12,
+                                  color: isApproved
+                                    ? "#166534"
+                                    : isRejected
+                                      ? "#b91c1c"
+                                      : "#666",
+                                  marginTop: 2,
+                                  fontWeight: "700",
                                 }}
                               >
-                                Reason: {a.reviewer_notes}
+                                {status}
+                                {submitted ? ` • ${submitted}` : ""}
                               </Text>
-                            ) : null}
-                            {isApproved ? (
-                              <TouchableOpacity
-                                style={{
-                                  marginTop: 8,
-                                  backgroundColor: secondary,
-                                  borderRadius: 8,
-                                  paddingVertical: 8,
-                                  alignItems: "center",
-                                }}
-                                onPress={() => {
-                                  setErr("Ministry details screen coming soon.");
-                                }}
-                              >
-                                <Text style={{ color: "#fff", fontWeight: "900" }}>
-                                  Go to Ministry
+                              {isRejected && a.reviewer_notes ? (
+                                <Text
+                                  style={{
+                                    color: "#b91c1c",
+                                    marginTop: 4,
+                                    fontSize: 12,
+                                  }}
+                                >
+                                  Reason: {a.reviewer_notes}
                                 </Text>
-                              </TouchableOpacity>
-                            ) : null}
-                            {isDraft ? (
-                              <TouchableOpacity
-                                style={{
-                                  marginTop: 8,
-                                  backgroundColor: secondary,
-                                  borderRadius: 8,
-                                  paddingVertical: 8,
-                                  alignItems: "center",
-                                }}
-                                onPress={() => {
-                                  const bm = a.branch_ministry;
-                                  const item = branchMinistries.find(
-                                    (x) =>
-                                      x.branch_ministry_id ===
-                                      bm?.branch_ministry_id,
-                                  );
-                                  if (item) {
-                                    void openJoinModal(item);
-                                  } else {
+                              ) : null}
+                              {isApproved ? (
+                                <TouchableOpacity
+                                  style={{
+                                    marginTop: 8,
+                                    backgroundColor: secondary,
+                                    borderRadius: 8,
+                                    paddingVertical: 8,
+                                    alignItems: "center",
+                                  }}
+                                  onPress={() => {
                                     setErr(
-                                      "Ministry details unavailable for this draft.",
+                                      "Ministry details screen coming soon.",
                                     );
+                                  }}
+                                >
+                                  <Text
+                                    style={{ color: "#fff", fontWeight: "900" }}
+                                  >
+                                    Go to Ministry
+                                  </Text>
+                                </TouchableOpacity>
+                              ) : null}
+                              {isDraft ? (
+                                <TouchableOpacity
+                                  style={{
+                                    marginTop: 8,
+                                    backgroundColor: secondary,
+                                    borderRadius: 8,
+                                    paddingVertical: 8,
+                                    alignItems: "center",
+                                  }}
+                                  onPress={() => {
+                                    const bm = a.branch_ministry;
+                                    const item = branchMinistries.find(
+                                      (x) =>
+                                        x.branch_ministry_id ===
+                                        bm?.branch_ministry_id,
+                                    );
+                                    if (item) {
+                                      void openJoinModal(item);
+                                    } else {
+                                      setErr(
+                                        "Ministry details unavailable for this draft.",
+                                      );
+                                    }
+                                  }}
+                                >
+                                  <Text
+                                    style={{ color: "#fff", fontWeight: "900" }}
+                                  >
+                                    Continue Draft
+                                  </Text>
+                                </TouchableOpacity>
+                              ) : null}
+                              {isDraft ? (
+                                <TouchableOpacity
+                                  style={{
+                                    marginTop: 8,
+                                    backgroundColor: "#fef2f2",
+                                    borderRadius: 8,
+                                    paddingVertical: 8,
+                                    alignItems: "center",
+                                    borderWidth: 1,
+                                    borderColor: "#fecaca",
+                                  }}
+                                  onPress={() =>
+                                    void deleteDraftApplication(
+                                      a.application_id,
+                                    )
                                   }
-                                }}
-                              >
-                                <Text style={{ color: "#fff", fontWeight: "900" }}>
-                                  Continue Draft
-                                </Text>
-                              </TouchableOpacity>
-                            ) : null}
-                            {isDraft ? (
-                              <TouchableOpacity
-                                style={{
-                                  marginTop: 8,
-                                  backgroundColor: "#fef2f2",
-                                  borderRadius: 8,
-                                  paddingVertical: 8,
-                                  alignItems: "center",
-                                  borderWidth: 1,
-                                  borderColor: "#fecaca",
-                                }}
-                                onPress={() =>
-                                  void deleteDraftApplication(a.application_id)
-                                }
-                              >
-                                <Text
-                                  style={{ color: "#b91c1c", fontWeight: "900" }}
                                 >
-                                  Remove Draft
-                                </Text>
-                              </TouchableOpacity>
-                            ) : null}
-                            {canView ? (
-                              <TouchableOpacity
-                                style={{
-                                  marginTop: 8,
-                                  backgroundColor: "#f0f0f0",
-                                  borderRadius: 8,
-                                  paddingVertical: 8,
-                                  alignItems: "center",
-                                }}
-                                onPress={() => void openViewApplication(a)}
-                              >
-                                <Text style={{ color: "#333", fontWeight: "900" }}>
-                                  View Application
-                                </Text>
-                              </TouchableOpacity>
-                            ) : null}
-                            {isSubmitted ? (
-                              <TouchableOpacity
-                                style={{
-                                  marginTop: 8,
-                                  backgroundColor: "#fef2f2",
-                                  borderRadius: 8,
-                                  paddingVertical: 8,
-                                  alignItems: "center",
-                                  borderWidth: 1,
-                                  borderColor: "#fecaca",
-                                }}
-                                onPress={() =>
-                                  void cancelApplication(a.application_id)
-                                }
-                              >
-                                <Text
-                                  style={{ color: "#b91c1c", fontWeight: "900" }}
+                                  <Text
+                                    style={{
+                                      color: "#b91c1c",
+                                      fontWeight: "900",
+                                    }}
+                                  >
+                                    Remove Draft
+                                  </Text>
+                                </TouchableOpacity>
+                              ) : null}
+                              {canView ? (
+                                <TouchableOpacity
+                                  style={{
+                                    marginTop: 8,
+                                    backgroundColor: "#f0f0f0",
+                                    borderRadius: 8,
+                                    paddingVertical: 8,
+                                    alignItems: "center",
+                                  }}
+                                  onPress={() => void openViewApplication(a)}
                                 >
-                                  Cancel Application
-                                </Text>
-                              </TouchableOpacity>
-                            ) : null}
-                          </View>
-                        );
+                                  <Text
+                                    style={{ color: "#333", fontWeight: "900" }}
+                                  >
+                                    View Application
+                                  </Text>
+                                </TouchableOpacity>
+                              ) : null}
+                              {isSubmitted ? (
+                                <TouchableOpacity
+                                  style={{
+                                    marginTop: 8,
+                                    backgroundColor: "#fef2f2",
+                                    borderRadius: 8,
+                                    paddingVertical: 8,
+                                    alignItems: "center",
+                                    borderWidth: 1,
+                                    borderColor: "#fecaca",
+                                  }}
+                                  onPress={() =>
+                                    void cancelApplication(a.application_id)
+                                  }
+                                >
+                                  <Text
+                                    style={{
+                                      color: "#b91c1c",
+                                      fontWeight: "900",
+                                    }}
+                                  >
+                                    Cancel Application
+                                  </Text>
+                                </TouchableOpacity>
+                              ) : null}
+                            </View>
+                          );
                         })
                     )}
                   </View>
@@ -1728,13 +1788,10 @@ export default function MinistryScreen() {
                             ...p,
                             [r.requirement_id]: {
                               ...(p[r.requirement_id] || {}),
-                              other_checked: !(
-                                p?.[r.requirement_id]?.other_checked
-                              ),
-                              other_text: !(
-                                p?.[r.requirement_id]?.other_checked
-                              )
-                                ? (p?.[r.requirement_id]?.other_text || "")
+                              other_checked:
+                                !p?.[r.requirement_id]?.other_checked,
+                              other_text: !p?.[r.requirement_id]?.other_checked
+                                ? p?.[r.requirement_id]?.other_text || ""
                                 : "",
                             },
                           }))
@@ -1789,8 +1846,8 @@ export default function MinistryScreen() {
                       <Text style={{ color: "#666", fontSize: 12 }}>
                         Allowed gender:{" "}
                         {allowed.length ? allowed.join(", ") : "Any"}
-                        {"\n"}Minor only: {minorOnly ? "Yes" : "No"} • Adult only:{" "}
-                        {adultOnly ? "Yes" : "No"}
+                        {"\n"}Minor only: {minorOnly ? "Yes" : "No"} • Adult
+                        only: {adultOnly ? "Yes" : "No"}
                       </Text>
 
                       <Text
@@ -1849,7 +1906,8 @@ export default function MinistryScreen() {
                     : [];
                   const direction = cfg?.direction || "owner_has_family";
 
-                  const applicantAuthId = applicantProfile?.auth_user_id || null;
+                  const applicantAuthId =
+                    applicantProfile?.auth_user_id || null;
                   const pass = applicantAuthId
                     ? passesFamilyRelation(
                         cfg,
@@ -1863,8 +1921,7 @@ export default function MinistryScreen() {
                       {titleWithRequired}
 
                       <Text style={{ color: "#666" }}>
-                        Must have:{" "}
-                        {needed.length ? needed.join(", ") : "—"}
+                        Must have: {needed.length ? needed.join(", ") : "—"}
                       </Text>
 
                       <Text
@@ -1907,7 +1964,10 @@ export default function MinistryScreen() {
                       ...p,
                       [r.requirement_id]: {
                         ...(p[r.requirement_id] || {}),
-                        fields: { ...(p[r.requirement_id]?.fields || {}), [key]: val },
+                        fields: {
+                          ...(p[r.requirement_id]?.fields || {}),
+                          [key]: val,
+                        },
                       },
                     }));
                   };
@@ -2281,9 +2341,7 @@ export default function MinistryScreen() {
                           <Text style={{ color: "crimson" }}>*</Text>
                         ) : null}
                       </Text>
-                      <Text style={{ color: "#111" }}>
-                        {renderValue()}
-                      </Text>
+                      <Text style={{ color: "#111" }}>{renderValue()}</Text>
                     </View>
                   );
                 })
@@ -2346,7 +2404,21 @@ export default function MinistryScreen() {
                   const end = t.task_end
                     ? new Date(t.task_end).toLocaleString()
                     : "";
-                  const activityDate = `${fmtDateTime(a.planned_start)} - ${fmtDateTime(a.planned_end)}`;
+                  const activityTitle =
+                    a.title || a.event?.title || a.series?.title || "Activity";
+                  const activityStart =
+                    a.planned_start ||
+                    a.event?.start_datetime ||
+                    a.series?.starts_on ||
+                    null;
+                  const activityEnd =
+                    a.planned_end ||
+                    a.event?.end_datetime ||
+                    a.series?.ends_on ||
+                    null;
+                  const activityLocation =
+                    a.location || a.event?.location || a.series?.location || "";
+                  const activityDate = `${fmtDateTime(activityStart)} - ${fmtDateTime(activityEnd)}`;
                   const showDecline = !isDeclined;
                   const showConfirm = !isAccepted;
 
@@ -2362,11 +2434,11 @@ export default function MinistryScreen() {
                       }}
                     >
                       <Text style={{ fontWeight: "900", color: "#111" }}>
-                        {safeText(a.title, "Activity")}
+                        {safeText(activityTitle, "Activity")}
                       </Text>
                       <Text style={{ color: "#666", marginTop: 2 }}>
                         {activityDate}
-                        {a.location ? ` - ${a.location}` : ""}
+                        {activityLocation ? ` - ${activityLocation}` : ""}
                       </Text>
 
                       <View style={{ marginTop: 10 }}>
@@ -2391,24 +2463,22 @@ export default function MinistryScreen() {
                           paddingVertical: 4,
                           paddingHorizontal: 10,
                           borderRadius: 999,
-                          backgroundColor:
-                            isAccepted
-                              ? "#dcfce7"
-                              : isDeclined
-                                ? "#fee2e2"
-                                : "#fff7ed",
+                          backgroundColor: isAccepted
+                            ? "#dcfce7"
+                            : isDeclined
+                              ? "#fee2e2"
+                              : "#fff7ed",
                         }}
                       >
                         <Text
                           style={{
                             fontSize: 12,
                             fontWeight: "800",
-                            color:
-                              isAccepted
-                                ? "#166534"
-                                : isDeclined
-                                  ? "#b91c1c"
-                                  : "#92400e",
+                            color: isAccepted
+                              ? "#166534"
+                              : isDeclined
+                                ? "#b91c1c"
+                                : "#92400e",
                           }}
                         >
                           {status}
@@ -2721,4 +2791,3 @@ const styles = StyleSheet.create({
     padding: 16,
   },
 });
-

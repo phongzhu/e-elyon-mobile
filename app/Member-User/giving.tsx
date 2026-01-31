@@ -1,6 +1,6 @@
-import { Ionicons } from "@expo/vector-icons";
+﻿import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Image,
   Modal,
@@ -11,69 +11,136 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Svg, { Circle, Polyline, Stop, LinearGradient as SvgLinearGradient } from "react-native-svg";
 import { supabase } from "../../src/lib/supabaseClient";
-import { recordsByTab } from "./giving-history";
 import MemberNavbar from "./member-navbar";
 
 export default function GivingScreen() {
   const insets = useSafeAreaInsets();
   const [branding, setBranding] = useState<any>(null);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [userId, setUserId] = useState<number | null>(null);
+  const [recentGiving, setRecentGiving] = useState<any[]>([]);
+  const [thisMonthTotal, setThisMonthTotal] = useState(0);
+  const [thisMonthCount, setThisMonthCount] = useState(0);
+  const [thisWeekTotal, setThisWeekTotal] = useState(0);
+  const [thisWeekCount, setThisWeekCount] = useState(0);
 
-  const notifications = [
+  const [notifications] = useState<any[]>([]);
+
+  const startOfMonth = (d = new Date()) =>
+    new Date(d.getFullYear(), d.getMonth(), 1);
+
+  const startOfWeekMon = (d = new Date()) => {
+    const x = new Date(d);
+    const day = x.getDay(); // 0 Sun
+    const diff = day === 0 ? -6 : 1 - day;
+    x.setDate(x.getDate() + diff);
+    x.setHours(0, 0, 0, 0);
+    return x;
+  };
+
+  const normalizeTypeLabel = (raw?: string | null) => {
+    if (!raw) return "Donation";
+    const lower = raw.toLowerCase();
+    if (lower.includes("tithe")) return "Donation";
+    return raw;
+  };
+
+  const resolveUserId = async () => {
+    const { data: auth } = await supabase.auth.getUser();
+    const uid = auth?.user?.id;
+    if (!uid) return null;
+
+    const { data, error } = await supabase
+      .from("users")
+      .select("user_id, role")
+      .eq("auth_user_id", uid)
+      .eq("role", "member")
+      .maybeSingle();
+
+    if (error) {
+      console.error("resolveUserId error:", error);
+      return null;
+    }
+    return data?.user_id ?? null;
+  };
+
+  const loadGiving = async (uidNum: number) => {
+    const givingFilter = (q: any) =>
+      q.or(
+        "donation_id.not.is.null,transaction_type.ilike.%giving%,transaction_type.ilike.%donation%,transaction_type.ilike.%tithe%",
+      );
+
+    const now = new Date();
+    const monthStart = startOfMonth(now);
+    const weekStart = startOfWeekMon(now);
+
     {
-      id: 1,
-      type: "event",
-      title: "Youth Fellowship Starting Soon",
-      message: "Youth Fellowship is starting in 30 minutes at the main church. Join us!",
-      time: "5 mins ago",
-      icon: "people",
-      read: false,
-    },
+      const q = supabase
+        .from("transactions")
+        .select("amount, transaction_date", { count: "exact" })
+        .eq("created_by", uidNum)
+        .gte("transaction_date", monthStart.toISOString())
+        .lte("transaction_date", now.toISOString());
+
+      const { data, count, error } = await givingFilter(q);
+      if (error) console.error("loadGiving month error:", error);
+      const total =
+        (data ?? []).reduce(
+          (s: number, r: any) => s + Number(r.amount ?? 0),
+          0,
+        ) ?? 0;
+      setThisMonthTotal(total);
+      setThisMonthCount(count ?? data?.length ?? 0);
+    }
+
     {
-      id: 2,
-      type: "location",
-      title: "Near Bustos Campus",
-      message: "You are near Bustos Campus. Sunday Service starts at 10:00 AM today.",
-      time: "1 hour ago",
-      icon: "location",
-      read: false,
-    },
+      const q = supabase
+        .from("transactions")
+        .select("amount, transaction_date", { count: "exact" })
+        .eq("created_by", uidNum)
+        .gte("transaction_date", weekStart.toISOString())
+        .lte("transaction_date", now.toISOString());
+
+      const { data, count, error } = await givingFilter(q);
+      if (error) console.error("loadGiving week error:", error);
+      const total =
+        (data ?? []).reduce(
+          (s: number, r: any) => s + Number(r.amount ?? 0),
+          0,
+        ) ?? 0;
+      setThisWeekTotal(total);
+      setThisWeekCount(count ?? data?.length ?? 0);
+    }
+
     {
-      id: 3,
-      type: "reminder",
-      title: "Pastor Appreciation Day",
-      message: "Don't forget! Pastor Appreciation Day is this Sunday, October 12.",
-      time: "2 hours ago",
-      icon: "calendar",
-      read: true,
-    },
-    {
-      id: 4,
-      type: "branch",
-      title: "Cavite Branch Activity",
-      message: "Special Family Fun Day at Cavite Community Grounds. RSVP now!",
-      time: "Yesterday",
-      icon: "home",
-      read: true,
-    },
-    {
-      id: 5,
-      type: "attendance",
-      title: "Attendance Recorded",
-      message: "Your attendance at Sunday Worship Service has been validated.",
-      time: "2 days ago",
-      icon: "checkmark-circle",
-      read: true,
-    },
-  ];
+      const q = supabase
+        .from("transactions")
+        .select(
+          "transaction_id, amount, transaction_date, notes, transaction_type",
+        )
+        .eq("created_by", uidNum)
+        .order("transaction_date", { ascending: false })
+        .limit(3);
+
+      const { data, error } = await givingFilter(q);
+      if (error) console.error("loadGiving recent error:", error);
+      setRecentGiving(data ?? []);
+    }
+  };
 
   useEffect(() => {
     (async () => {
-      const { data, error } = await supabase.from("ui_settings").select("*").single();
-      if (error) console.error("❌ Branding fetch error:", error);
+      const { data, error } = await supabase
+        .from("ui_settings")
+        .select("*")
+        .single();
+      if (error) console.error("âŒ Branding fetch error:", error);
       else setBranding(data);
+
+      const uidNum = await resolveUserId();
+      setUserId(uidNum);
+      if (uidNum) await loadGiving(uidNum);
     })();
   }, []);
 
@@ -82,40 +149,12 @@ export default function GivingScreen() {
   const logo = branding?.logo_icon
     ? branding.logo_icon.startsWith("http")
       ? branding.logo_icon
-      : supabase.storage.from("logos").getPublicUrl(branding.logo_icon).data.publicUrl
+      : supabase.storage.from("logos").getPublicUrl(branding.logo_icon).data
+          .publicUrl
     : null;
 
-  const wallets = ["Maya", "Gcash", "Bank Transfer"];
-
-  const allRecords = useMemo(() => {
-    return Object.values(recordsByTab).flat();
-  }, []);
-
-  const monthlyTotals = useMemo(() => {
-    const monthOrder = [
-      "January","February","March","April","May","June",
-      "July","August","September","October","November","December"
-    ];
-    const totals: Record<string, number> = {};
-    allRecords.forEach(r => {
-      const m = r.date.split(",")[0].split(" ")[0];
-      const amt = Number(r.amount.replace(/[^0-9.]/g, ""));
-      if (!isNaN(amt)) totals[m] = (totals[m] || 0) + amt;
-    });
-    return monthOrder.map(m => totals[m] || 0);
-  }, [allRecords]);
-
-  const sparkWidth = 320;
-  const sparkHeight = 60;
-  const sparkPoints = useMemo(() => {
-    const maxVal = Math.max(1, ...monthlyTotals);
-    const stepX = sparkWidth / (monthlyTotals.length - 1 || 1);
-    return monthlyTotals.map((v, i) => {
-      const x = i * stepX;
-      const y = sparkHeight - (v / maxVal) * sparkHeight;
-      return `${x},${y}`;
-    }).join(" ");
-  }, [monthlyTotals]);
+  const avgContribution =
+    thisMonthCount > 0 ? thisMonthTotal / thisMonthCount : 0;
 
   return (
     <View style={{ flex: 1, backgroundColor: "#fff" }}>
@@ -127,13 +166,15 @@ export default function GivingScreen() {
       >
         <View style={styles.headerLeft}>
           {logo ? (
-            <Image source={{ uri: logo }} style={styles.logo} resizeMode="contain" />
+            <Image
+              source={{ uri: logo }}
+              style={styles.logo}
+              resizeMode="contain"
+            />
           ) : (
             <View style={styles.logoPlaceholder} />
           )}
         </View>
-
-      
 
         <View style={styles.headerRight}>
           <TouchableOpacity
@@ -142,110 +183,129 @@ export default function GivingScreen() {
             activeOpacity={0.7}
           >
             <Ionicons name="notifications-outline" size={22} color="#fff" />
-            <View style={[styles.badge, { backgroundColor: secondary }]}>
-              <Text style={styles.badgeText}>{notifications.filter((n) => !n.read).length}</Text>
-            </View>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.iconButton} onPress={() => router.push("/Member-User/profile")}>
-            <Ionicons name="person-circle-outline" size={26} color="#fff" />
+            {notifications.filter((n) => !n.read).length > 0 && (
+              <View style={[styles.badge, { backgroundColor: secondary }]}>
+                <Text style={styles.badgeText}>
+                  {notifications.filter((n) => !n.read).length}
+                </Text>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
       </View>
 
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-       
-
+      <ScrollView
+        contentContainerStyle={[
+          styles.container,
+          { paddingBottom: 140 + insets.bottom },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Giving Analytics</Text>
           <View style={styles.analyticsRow}>
-            <View style={[styles.analyticsCard, { backgroundColor: `${primary}15` }]}>
+            <View
+              style={[
+                styles.analyticsCard,
+                { backgroundColor: `${primary}15` },
+              ]}
+            >
               <Text style={styles.analyticsLabel}>This Month</Text>
-              <Text style={[styles.analyticsAmount, { color: primary }]}>₱4,500</Text>
-              <Text style={styles.analyticsSub}>3 contributions</Text>
+              <Text style={[styles.analyticsAmount, { color: primary }]}>
+                ₱{thisMonthTotal.toLocaleString()}
+              </Text>
+              <Text style={styles.analyticsSub}>
+                {thisMonthCount} contributions
+              </Text>
             </View>
-            <View style={[styles.analyticsCard, { backgroundColor: `${secondary}15` }]}>
+            <View
+              style={[
+                styles.analyticsCard,
+                { backgroundColor: `${secondary}15` },
+              ]}
+            >
               <Text style={styles.analyticsLabel}>This Week</Text>
-              <Text style={[styles.analyticsAmount, { color: secondary }]}>₱1,500</Text>
-              <Text style={styles.analyticsSub}>1 contribution</Text>
+              <Text style={[styles.analyticsAmount, { color: secondary }]}>
+                ₱{thisWeekTotal.toLocaleString()}
+              </Text>
+              <Text style={styles.analyticsSub}>
+                {thisWeekCount} contribution(s)
+              </Text>
             </View>
           </View>
 
-          <View style={[styles.analyticsCard, { backgroundColor: '#f5f5f5', marginTop: 12 }]}>
-            <Text style={styles.analyticsLabel}>Per Service Average</Text>
-            <Text style={[styles.analyticsAmount, { color: '#000' }]}>₱1,200</Text>
-            <Text style={styles.analyticsSub}>Based on 12 services</Text>
+          <View
+            style={[
+              styles.analyticsCard,
+              { backgroundColor: "#f5f5f5", marginTop: 12 },
+            ]}
+          >
+            <Text style={styles.analyticsLabel}>Avg per Contribution</Text>
+            <Text style={[styles.analyticsAmount, { color: "#000" }]}>
+              ₱
+              {avgContribution.toLocaleString(undefined, {
+                maximumFractionDigits: 2,
+              })}
+            </Text>
+            <Text style={styles.analyticsSub}>
+              Based on {thisMonthCount} contributions
+            </Text>
           </View>
         </View>
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Recent Giving</Text>
-          {[
-            { id: 1, title: "Tithes", date: "December 15, 2024", amount: "₱1,500", channel: "Online", activity: "Sunday Worship Service" },
-            { id: 2, title: "Offering", date: "December 8, 2024", amount: "₱1,200", channel: "Online", activity: "Midweek Prayer Meeting" },
-            { id: 3, title: "Tithes", date: "December 1, 2024", amount: "₱1,800", channel: "Onsite", activity: "Sunday Worship Service" },
-          ].map((item) => (
-            <View key={item.id} style={styles.previewRow}>
-              <View>
-                <Text style={styles.previewTitle}>{item.title}</Text>
-                <Text style={styles.previewSubtitle}>{item.date}</Text>
-                <Text style={styles.previewMeta}>{`${item.channel} • ${item.activity}`}</Text>
-              </View>
-              <Text style={[styles.previewAmount, { color: secondary }]}>{item.amount}</Text>
-            </View>
-          ))}
+          {recentGiving.length === 0 ? (
+            <Text style={{ color: "#666" }}>No giving records yet.</Text>
+          ) : (
+            recentGiving.map((item) => {
+              const date = item.transaction_date
+                ? new Date(item.transaction_date).toLocaleDateString()
+                : "-";
+              const title = normalizeTypeLabel(item.transaction_type);
+              const amount = `₱${Number(item.amount ?? 0).toLocaleString()}`;
+              const meta = item.notes ? item.notes : "GCash â€¢ Online";
+
+              return (
+                <View key={item.transaction_id} style={styles.previewRow}>
+                  <View>
+                    <Text style={styles.previewTitle}>{title}</Text>
+                    <Text style={styles.previewSubtitle}>{date}</Text>
+                    <Text style={styles.previewMeta}>{meta}</Text>
+                  </View>
+                  <Text style={[styles.previewAmount, { color: secondary }]}>
+                    {amount}
+                  </Text>
+                </View>
+              );
+            })
+          )}
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.label}>Giving Trends</Text>
-          <Text style={styles.amount}>₱14,200</Text>
-          <Text style={[styles.subLabel, { color: secondary }]}>Last 12 Months +15%</Text>
-
-          <View style={styles.sparkWrap}>
-            <Svg width="100%" height={sparkHeight} viewBox={`0 0 ${sparkWidth} ${sparkHeight}`}>
-              <SvgLinearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
-                <Stop offset="0" stopColor={secondary} stopOpacity="0.35" />
-                <Stop offset="1" stopColor={secondary} stopOpacity="0" />
-              </SvgLinearGradient>
-              <Polyline
-                points={sparkPoints}
-                fill="none"
-                stroke={secondary}
-                strokeWidth="2"
-              />
-              {sparkPoints.split(" ").map((p, idx) => {
-                const [x, y] = p.split(",").map(Number);
-                const isLast = idx === sparkPoints.split(" ").length - 1;
-                return (
-                  <Circle key={idx} cx={x} cy={y} r={isLast ? 3 : 2} fill={secondary} />
-                );
-              })}
-            </Svg>
-          </View>
-          <View style={styles.yearRow}>
-            <Text style={styles.yearText}>2021</Text>
-            <Text style={styles.yearText}>2022</Text>
-            <Text style={styles.yearText}>2023</Text>
-          </View>
-
-          <TouchableOpacity
-            style={styles.ghostBtn}
-            activeOpacity={0.9}
-            onPress={() => router.push("/Member-User/giving-history")}
-          >
-            <Text style={styles.ghostText}>View History</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.primaryBtn, { backgroundColor: primary }]}
-            activeOpacity={0.9}
-            onPress={() => router.push("/Member-User/give-online")}
-          >
-            <Text style={styles.primaryBtnText}>Give Online</Text>
-          </TouchableOpacity>
-        </View>
-
-        
         <View style={{ height: 20 }} />
       </ScrollView>
+
+      <View
+        style={[
+          styles.actionBar,
+          { bottom: 64 + 12 + insets.bottom },
+        ]}
+      >
+        <TouchableOpacity
+          style={styles.actionGhost}
+          activeOpacity={0.9}
+          onPress={() => router.push("/Member-User/giving-history")}
+        >
+          <Text style={styles.actionGhostText}>View History</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.actionPrimary, { backgroundColor: primary }]}
+          activeOpacity={0.9}
+          onPress={() => router.push("/Member-User/give-online")}
+        >
+          <Text style={styles.actionPrimaryText}>Give Online</Text>
+        </TouchableOpacity>
+      </View>
 
       <Modal
         visible={showNotifications}
@@ -263,28 +323,56 @@ export default function GivingScreen() {
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false}>
-              {notifications.map((notif) => (
-                <TouchableOpacity
-                  key={notif.id}
-                  style={[
-                    styles.notificationItem,
-                    { backgroundColor: notif.read ? "#fff" : `${primary}08` },
-                  ]}
-                  activeOpacity={0.8}
+              {notifications.length === 0 ? (
+                <Text
+                  style={{ color: "#666", textAlign: "center", marginTop: 16 }}
                 >
-                  <View style={[styles.notificationIcon, { backgroundColor: `${primary}20` }]}>
-                    <Ionicons name={notif.icon as any} size={22} color={primary} />
-                  </View>
-                  <View style={styles.notificationContent}>
-                    <View style={styles.notificationHeader}>
-                      <Text style={styles.notificationTitle}>{notif.title}</Text>
-                      {!notif.read && <View style={[styles.unreadDot, { backgroundColor: secondary }]} />}
+                  No notifications yet.
+                </Text>
+              ) : (
+                notifications.map((notif) => (
+                  <TouchableOpacity
+                    key={notif.id}
+                    style={[
+                      styles.notificationItem,
+                      { backgroundColor: notif.read ? "#fff" : `${primary}08` },
+                    ]}
+                    activeOpacity={0.8}
+                  >
+                    <View
+                      style={[
+                        styles.notificationIcon,
+                        { backgroundColor: `${primary}20` },
+                      ]}
+                    >
+                      <Ionicons
+                        name={notif.icon as any}
+                        size={22}
+                        color={primary}
+                      />
                     </View>
-                    <Text style={styles.notificationMessage}>{notif.message}</Text>
-                    <Text style={styles.notificationTime}>{notif.time}</Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
+                    <View style={styles.notificationContent}>
+                      <View style={styles.notificationHeader}>
+                        <Text style={styles.notificationTitle}>
+                          {notif.title}
+                        </Text>
+                        {!notif.read && (
+                          <View
+                            style={[
+                              styles.unreadDot,
+                              { backgroundColor: secondary },
+                            ]}
+                          />
+                        )}
+                      </View>
+                      <Text style={styles.notificationMessage}>
+                        {notif.message}
+                      </Text>
+                      <Text style={styles.notificationTime}>{notif.time}</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))
+              )}
             </ScrollView>
           </View>
         </View>
@@ -370,57 +458,44 @@ const styles = StyleSheet.create({
     color: "#000",
     marginBottom: 12,
   },
-  label: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#000",
-    marginBottom: 8,
-  },
-  amount: {
-    fontSize: 32,
-    fontWeight: "700",
-    color: "#000",
-    marginBottom: 4,
-  },
-  subLabel: {
-    fontSize: 14,
-    fontWeight: "500",
-    marginBottom: 16,
-  },
-  sparkWrap: {
-    marginVertical: 16,
-    borderRadius: 8,
-    overflow: "hidden",
-  },
-  yearRow: {
+  actionBar: {
+    position: "absolute",
+    left: 16,
+    right: 16,
     flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 16,
+    gap: 12,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: "#e7ece9",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 6,
   },
-  yearText: {
-    fontSize: 12,
-    color: "#666",
-    fontWeight: "500",
-  },
-  ghostBtn: {
+  actionGhost: {
+    flex: 1,
     borderWidth: 1.5,
-    borderColor: "#ccc",
-    borderRadius: 8,
+    borderColor: "#cfd6d1",
+    borderRadius: 10,
     paddingVertical: 12,
     alignItems: "center",
-    marginBottom: 12,
+    backgroundColor: "#f8faf9",
   },
-  ghostText: {
+  actionGhostText: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: "700",
     color: "#1f2a1f",
   },
-  primaryBtn: {
-    borderRadius: 8,
+  actionPrimary: {
+    flex: 1,
+    borderRadius: 10,
     paddingVertical: 12,
     alignItems: "center",
   },
-  primaryBtnText: {
+  actionPrimaryText: {
     fontSize: 14,
     fontWeight: "700",
     color: "#fff",
@@ -521,7 +596,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   analyticsRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 12,
   },
   analyticsCard: {
@@ -529,21 +604,21 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: "#e0e0e0",
   },
   analyticsLabel: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#666',
+    fontWeight: "600",
+    color: "#666",
     marginBottom: 6,
   },
   analyticsAmount: {
     fontSize: 24,
-    fontWeight: '800',
+    fontWeight: "800",
     marginBottom: 4,
   },
   analyticsSub: {
     fontSize: 11,
-    color: '#888',
+    color: "#888",
   },
 });

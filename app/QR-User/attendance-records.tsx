@@ -1,320 +1,111 @@
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import { router } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import {
-    Image,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Alert,
+  Image,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { supabase } from "../../src/lib/supabaseClient";
 import QRNavbar from "./qr-navbar";
 
-const branches = [
-  "San Roque",
-  "Bustos",
-  "Talacsan",
-  "Vizal Pampanga",
-  "Cavite",
-];
-const services = [
-  "All",
-  "Sunday Service",
-  "Bible Study",
-  "Prayer Meeting",
-  "Youth Service",
-  "Midweek Service",
-];
 const timePeriods = ["Daily", "Weekly", "Monthly"];
 
-// Dummy data for Daily view (Today)
-const dailyAttendance = [
-  {
-    id: 1,
-    name: "Ethan Carter",
-    time: "10:30 AM",
-    date: "Today",
-    branch: "San Roque",
-    service: "Sunday Service",
-    avatar: "https://i.pravatar.cc/80?img=12",
-  },
-  {
-    id: 2,
-    name: "Olivia Bennett",
-    time: "10:35 AM",
-    date: "Today",
-    branch: "Bustos",
-    service: "Sunday Service",
-    avatar: "https://i.pravatar.cc/80?img=32",
-  },
-  {
-    id: 3,
-    name: "Noah Thompson",
-    time: "10:40 AM",
-    date: "Today",
-    branch: "San Roque",
-    service: "Sunday Service",
-    avatar: "https://i.pravatar.cc/80?img=45",
-  },
-  {
-    id: 4,
-    name: "Ava Collins",
-    time: "11:05 AM",
-    date: "Today",
-    branch: "Talacsan",
-    service: "Sunday Service",
-    avatar: "https://i.pravatar.cc/80?img=24",
-  },
-  {
-    id: 5,
-    name: "Liam Foster",
-    time: "11:15 AM",
-    date: "Today",
-    branch: "San Roque",
-    service: "Sunday Service",
-    avatar: "https://i.pravatar.cc/80?img=18",
-  },
-  {
-    id: 6,
-    name: "Sophia Martinez",
-    time: "2:20 PM",
-    date: "Today",
-    branch: "Bustos",
-    service: "Bible Study",
-    avatar: "https://i.pravatar.cc/80?img=28",
-  },
-  {
-    id: 7,
-    name: "James Wilson",
-    time: "3:45 PM",
-    date: "Today",
-    branch: "Vizal Pampanga",
-    service: "Prayer Meeting",
-    avatar: "https://i.pravatar.cc/80?img=51",
-  },
-];
+type AttendanceRecord = {
+  id: number;
+  name: string;
+  time: string;
+  date: string;
+  attendedAt: string;
+  branch: string;
+  branchId: number | null;
+  service: string;
+  avatarUrl: string | null;
+  eventTime: string;
+  eventImageUrl: string | null;
+  checkInMethod: string | null;
+};
 
-// Dummy data for Weekly view (Last 7 days)
-const weeklyAttendance = [
-  {
-    id: 11,
-    name: "Emma Davis",
-    time: "9:15 AM",
-    date: "Mon, Dec 16",
-    branch: "San Roque",
-    service: "Sunday Service",
-    avatar: "https://i.pravatar.cc/80?img=5",
-  },
-  {
-    id: 12,
-    name: "Michael Brown",
-    time: "9:30 AM",
-    date: "Mon, Dec 16",
-    branch: "Cavite",
-    service: "Sunday Service",
-    avatar: "https://i.pravatar.cc/80?img=13",
-  },
-  {
-    id: 13,
-    name: "Isabella Garcia",
-    time: "10:00 AM",
-    date: "Sun, Dec 15",
-    branch: "Bustos",
-    service: "Sunday Service",
-    avatar: "https://i.pravatar.cc/80?img=44",
-  },
-  {
-    id: 14,
-    name: "William Johnson",
-    time: "10:20 AM",
-    date: "Sun, Dec 15",
-    branch: "Talacsan",
-    service: "Sunday Service",
-    avatar: "https://i.pravatar.cc/80?img=33",
-  },
-  {
-    id: 15,
-    name: "Charlotte Lee",
-    time: "6:00 PM",
-    date: "Wed, Dec 11",
-    branch: "San Roque",
-    service: "Midweek Service",
-    avatar: "https://i.pravatar.cc/80?img=22",
-  },
-  {
-    id: 16,
-    name: "Benjamin Taylor",
-    time: "6:15 PM",
-    date: "Wed, Dec 11",
-    branch: "Bustos",
-    service: "Midweek Service",
-    avatar: "https://i.pravatar.cc/80?img=14",
-  },
-  {
-    id: 17,
-    name: "Amelia Anderson",
-    time: "7:00 PM",
-    date: "Tue, Dec 10",
-    branch: "Vizal Pampanga",
-    service: "Bible Study",
-    avatar: "https://i.pravatar.cc/80?img=26",
-  },
-  {
-    id: 18,
-    name: "Lucas White",
-    time: "7:30 PM",
-    date: "Tue, Dec 10",
-    branch: "Cavite",
-    service: "Prayer Meeting",
-    avatar: "https://i.pravatar.cc/80?img=60",
-  },
-  {
-    id: 19,
-    name: "Mia Harris",
-    time: "5:00 PM",
-    date: "Sat, Dec 14",
-    branch: "San Roque",
-    service: "Youth Service",
-    avatar: "https://i.pravatar.cc/80?img=47",
-  },
-  {
-    id: 20,
-    name: "Alexander Clark",
-    time: "5:30 PM",
-    date: "Sat, Dec 14",
-    branch: "Talacsan",
-    service: "Youth Service",
-    avatar: "https://i.pravatar.cc/80?img=52",
-  },
-];
+const PROFILE_PICS_BUCKET = "profile_pics";
+const pickBranchId = (usersDetails: any): number | null => {
+  if (!usersDetails) return null;
+  if (Array.isArray(usersDetails)) {
+    return usersDetails.length > 0 ? usersDetails[0]?.branch_id ?? null : null;
+  }
+  return usersDetails?.branch_id ?? null;
+};
 
-// Dummy data for Monthly view (December)
-const monthlyAttendance = [
-  {
-    id: 31,
-    name: "Harper Lewis",
-    time: "9:00 AM",
-    date: "Dec 1",
-    branch: "San Roque",
-    service: "Sunday Service",
-    avatar: "https://i.pravatar.cc/80?img=9",
-  },
-  {
-    id: 32,
-    name: "Evelyn Walker",
-    time: "9:30 AM",
-    date: "Dec 1",
-    branch: "Bustos",
-    service: "Sunday Service",
-    avatar: "https://i.pravatar.cc/80?img=20",
-  },
-  {
-    id: 33,
-    name: "Sebastian Hall",
-    time: "10:00 AM",
-    date: "Dec 8",
-    branch: "Vizal Pampanga",
-    service: "Sunday Service",
-    avatar: "https://i.pravatar.cc/80?img=15",
-  },
-  {
-    id: 34,
-    name: "Abigail Young",
-    time: "10:30 AM",
-    date: "Dec 8",
-    branch: "Cavite",
-    service: "Sunday Service",
-    avatar: "https://i.pravatar.cc/80?img=48",
-  },
-  {
-    id: 35,
-    name: "Jackson Allen",
-    time: "6:00 PM",
-    date: "Dec 4",
-    branch: "San Roque",
-    service: "Midweek Service",
-    avatar: "https://i.pravatar.cc/80?img=11",
-  },
-  {
-    id: 36,
-    name: "Ella King",
-    time: "6:30 PM",
-    date: "Dec 4",
-    branch: "Talacsan",
-    service: "Midweek Service",
-    avatar: "https://i.pravatar.cc/80?img=25",
-  },
-  {
-    id: 37,
-    name: "Henry Wright",
-    time: "7:00 PM",
-    date: "Dec 3",
-    branch: "Bustos",
-    service: "Bible Study",
-    avatar: "https://i.pravatar.cc/80?img=53",
-  },
-  {
-    id: 38,
-    name: "Scarlett Lopez",
-    time: "7:15 PM",
-    date: "Dec 3",
-    branch: "San Roque",
-    service: "Prayer Meeting",
-    avatar: "https://i.pravatar.cc/80?img=41",
-  },
-  {
-    id: 39,
-    name: "Daniel Hill",
-    time: "4:30 PM",
-    date: "Dec 7",
-    branch: "Vizal Pampanga",
-    service: "Youth Service",
-    avatar: "https://i.pravatar.cc/80?img=31",
-  },
-  {
-    id: 40,
-    name: "Grace Scott",
-    time: "5:00 PM",
-    date: "Dec 7",
-    branch: "Cavite",
-    service: "Youth Service",
-    avatar: "https://i.pravatar.cc/80?img=19",
-  },
-  {
-    id: 41,
-    name: "Matthew Green",
-    time: "10:15 AM",
-    date: "Dec 15",
-    branch: "Bustos",
-    service: "Sunday Service",
-    avatar: "https://i.pravatar.cc/80?img=54",
-  },
-  {
-    id: 42,
-    name: "Chloe Adams",
-    time: "10:45 AM",
-    date: "Dec 15",
-    branch: "San Roque",
-    service: "Sunday Service",
-    avatar: "https://i.pravatar.cc/80?img=27",
-  },
-];
+const toProfilePicUrl = (path?: string | null) => {
+  if (!path) return null;
+  if (path.startsWith("http")) return path;
+  return supabase.storage.from(PROFILE_PICS_BUCKET).getPublicUrl(path).data
+    .publicUrl;
+};
+
+const toEventImageUrl = (path?: string | null) => {
+  if (!path) return null;
+  if (path.startsWith("http")) return path;
+  return supabase.storage.from("church-event").getPublicUrl(path).data.publicUrl;
+};
+
+const formatDateLabel = (iso?: string | null) => {
+  if (!iso) return "-";
+  return new Date(iso).toLocaleDateString();
+};
+
+const formatTimeLabel = (iso?: string | null) => {
+  if (!iso) return "-";
+  return new Date(iso).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+};
+
+const formatEventTimeRange = (startIso?: string | null, endIso?: string | null) => {
+  if (!startIso && !endIso) return "-";
+  if (startIso && endIso) return `${formatTimeLabel(startIso)} - ${formatTimeLabel(endIso)}`;
+  return formatTimeLabel(startIso ?? endIso);
+};
 
 export default function AttendanceRecords() {
   const [branding, setBranding] = useState<any>(null);
-  const [selectedBranch, setSelectedBranch] = useState("All");
-  const [selectedService, setSelectedService] = useState("All");
+  const [selectedBranchId, setSelectedBranchId] = useState<number | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState("Daily");
   const [showScanner, setShowScanner] = useState(false);
   const [scanned, setScanned] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
+  const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [branches, setBranches] = useState<Array<{ id: number; name: string }>>([]);
+  const [openDropdown, setOpenDropdown] = useState<"branch" | "period" | null>(null);
 
   const primary = branding?.primary_color || "#064622";
   const secondary = branding?.secondary_color || "#0C8A43";
+
+  const loadBranches = async () => {
+    const { data, error } = await supabase
+      .from("branches")
+      .select("branch_id, name")
+      .order("name", { ascending: true });
+
+    if (error) {
+      console.error("loadBranches error:", error);
+      setBranches([]);
+      return;
+    }
+
+    const rows = (data ?? []).map((b: any) => ({
+      id: b.branch_id,
+      name: b.name ?? "Branch",
+    }));
+    rows.sort((a, b) => a.name.localeCompare(b.name));
+    setBranches(rows);
+  };
 
   useEffect(() => {
     (async () => {
@@ -326,57 +117,188 @@ export default function AttendanceRecords() {
         setBranding(data);
       }
     })();
+    loadBranches();
   }, []);
 
-  // Get current attendance records based on period
-  const currentRecords = useMemo(() => {
-    switch (selectedPeriod) {
-      case "Daily":
-        return dailyAttendance;
-      case "Weekly":
-        return weeklyAttendance;
-      case "Monthly":
-        return monthlyAttendance;
-      default:
-        return dailyAttendance;
+  const getQrBranchId = async () => {
+    const { data: auth } = await supabase.auth.getUser();
+    const authUserId = auth?.user?.id;
+    if (!authUserId) return null;
+
+    const { data, error } = await supabase
+      .from("users")
+      .select("user_id, role, users_details:users_details(branch_id)")
+      .eq("auth_user_id", authUserId)
+      .in("role", ["QR_MEMBER", "QR-MEMBER"])
+      .maybeSingle();
+
+    if (error) {
+      console.error("QR branch resolve error:", error);
+      return null;
     }
-  }, [selectedPeriod]);
+
+    return pickBranchId(data?.users_details);
+  };
+
+  const resolveMemberUserId = async (payload: any) => {
+    if (payload?.user_id) return Number(payload.user_id);
+
+    const authUserId = payload?.auth_user_id;
+    if (authUserId) {
+      const { data, error } = await supabase
+        .from("users")
+        .select("user_id")
+        .eq("auth_user_id", authUserId)
+        .eq("role", "member")
+        .maybeSingle();
+      if (!error && data?.user_id) return Number(data.user_id);
+    }
+
+    const userCode = payload?.user_code;
+    if (userCode) {
+      const { data, error } = await supabase
+        .from("users_details")
+        .select("user_details_id, auth_user_id")
+        .eq("user_code", userCode)
+        .maybeSingle();
+      if (error || !data?.auth_user_id) return null;
+      const { data: userRow } = await supabase
+        .from("users")
+        .select("user_id")
+        .eq("auth_user_id", data.auth_user_id)
+        .eq("role", "member")
+        .maybeSingle();
+      return userRow?.user_id ? Number(userRow.user_id) : null;
+    }
+
+    return null;
+  };
+
+  const resolveActiveEventId = async (branchId: number | null) => {
+    const nowIso = new Date().toISOString();
+    let q = supabase
+      .from("events")
+      .select("event_id, title, start_datetime, end_datetime, branch_id")
+      .in("status", ["Scheduled", "Published", "Active", "Approved"])
+      .lte("start_datetime", nowIso)
+      .gte("end_datetime", nowIso)
+      .order("start_datetime", { ascending: false })
+      .limit(1);
+
+    if (branchId !== null) {
+      q = q.or(`branch_id.eq.${branchId},branch_id.is.null`);
+    } else {
+      q = q.is("branch_id", null);
+    }
+
+    const { data, error } = await q.maybeSingle();
+    if (error) {
+      console.error("resolveActiveEventId error:", error);
+      return null;
+    }
+    return data?.event_id ? Number(data.event_id) : null;
+  };
+
+  const loadAttendanceRecords = async () => {
+    setLoading(true);
+    try {
+      const branchId = await getQrBranchId();
+      const now = new Date();
+      const startRange = new Date(now);
+      startRange.setDate(now.getDate() - 30);
+
+      let q = supabase
+        .from("event_attendance")
+        .select(
+          "attendance_id, attended_at, check_in_method, event:events!inner(title, branch_id, branches(name), cover_image_path, start_datetime, end_datetime), user:users(user_details:users_details(first_name,last_name,photo_path,branch_id))",
+        )
+        .in("check_in_method", ["qr", "QR"])
+        .gte("attended_at", startRange.toISOString())
+        .order("attended_at", { ascending: false });
+
+      if (branchId !== null) {
+        q = q.or(`event.branch_id.eq.${branchId},event.branch_id.is.null`);
+      }
+
+      const { data, error } = await q;
+      if (error) throw error;
+
+      const rows = (data ?? []).map((r: any) => {
+        const details = r.user?.user_details;
+        const name = [details?.first_name, details?.last_name]
+          .filter(Boolean)
+          .join(" ")
+          .trim() || "Member";
+        const derivedBranchId =
+          r.event?.branch_id ??
+          details?.branch_id ??
+          null;
+        const derivedBranchName =
+          r.event?.branches?.name ||
+          branches.find((b) => b.id === derivedBranchId)?.name ||
+          "Unknown";
+        return {
+          id: r.attendance_id,
+          name,
+          time: formatTimeLabel(r.attended_at),
+          date: formatDateLabel(r.attended_at),
+          attendedAt: r.attended_at || "",
+          branch: derivedBranchName,
+          branchId: derivedBranchId,
+          service: r.event?.title || "Event",
+          avatarUrl: toProfilePicUrl(details?.photo_path),
+          eventTime: formatEventTimeRange(
+            r.event?.start_datetime,
+            r.event?.end_datetime,
+          ),
+          eventImageUrl: toEventImageUrl(r.event?.cover_image_path),
+          checkInMethod: r.check_in_method || null,
+        } as AttendanceRecord;
+      });
+
+      setRecords(rows);
+
+    } catch (e) {
+      console.error("loadAttendanceRecords error:", e);
+      setRecords([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadAttendanceRecords();
+  }, []);
 
   const filteredRecords = useMemo(() => {
-    return currentRecords.filter((record) => {
-      const branchMatch =
-        selectedBranch === "All" || record.branch === selectedBranch;
-      const serviceMatch =
-        selectedService === "All" || record.service === selectedService;
-      return branchMatch && serviceMatch;
+    const now = new Date();
+    const periodStart = new Date(now);
+    if (selectedPeriod === "Weekly") {
+      periodStart.setDate(now.getDate() - 7);
+    } else if (selectedPeriod === "Monthly") {
+      periodStart.setDate(now.getDate() - 30);
+    } else {
+      periodStart.setHours(0, 0, 0, 0);
+    }
+
+    const periodFiltered = records.filter((record) => {
+      const recordDate = record.attendedAt
+        ? new Date(record.attendedAt)
+        : null;
+      if (!recordDate) return false;
+      return recordDate >= periodStart && recordDate <= now;
     });
-  }, [currentRecords, selectedBranch, selectedService]);
+
+    return periodFiltered.filter((record) => {
+      if (selectedBranchId == null) return true;
+      return record.branchId === selectedBranchId;
+    });
+  }, [records, selectedBranchId, selectedPeriod, branches]);
 
   // Analytics calculations
   const analytics = useMemo(() => {
     const totalAttendees = filteredRecords.length;
-    const uniqueBranches = [...new Set(filteredRecords.map((r) => r.branch))]
-      .length;
 
-    // Count by service
-    const serviceCount: { [key: string]: number } = {};
-    filteredRecords.forEach((record) => {
-      serviceCount[record.service] = (serviceCount[record.service] || 0) + 1;
-    });
-    const topService = Object.entries(serviceCount).sort(
-      (a, b) => b[1] - a[1],
-    )[0];
-
-    // Count by branch
-    const branchCount: { [key: string]: number } = {};
-    filteredRecords.forEach((record) => {
-      branchCount[record.branch] = (branchCount[record.branch] || 0) + 1;
-    });
-    const topBranch = Object.entries(branchCount).sort(
-      (a, b) => b[1] - a[1],
-    )[0];
-
-    // Calculate average per day based on period
     let avgPerDay = totalAttendees;
     if (selectedPeriod === "Weekly") avgPerDay = Math.round(totalAttendees / 7);
     if (selectedPeriod === "Monthly")
@@ -384,14 +306,11 @@ export default function AttendanceRecords() {
 
     return {
       totalAttendees,
-      uniqueBranches,
-      topService: topService ? `${topService[0]} (${topService[1]})` : "N/A",
-      topBranch: topBranch ? `${topBranch[0]} (${topBranch[1]})` : "N/A",
       avgPerDay,
     };
   }, [filteredRecords, selectedPeriod]);
 
-  const handleBarCodeScanned = ({
+  const handleBarCodeScanned = async ({
     type,
     data,
   }: {
@@ -400,6 +319,65 @@ export default function AttendanceRecords() {
   }) => {
     setScanned(true);
     setShowScanner(false);
+
+    let payload: any = null;
+    try {
+      payload = JSON.parse(data);
+    } catch {
+      Alert.alert("Invalid QR", "This QR code is not valid.");
+      return;
+    }
+
+    if (!payload || payload.type !== "check-in") {
+      Alert.alert("Invalid QR", "This QR code is not a check-in code.");
+      return;
+    }
+
+    const memberUserId = await resolveMemberUserId(payload);
+    if (!memberUserId) {
+      Alert.alert(
+        "Invalid QR",
+        "Unable to identify the member. Please regenerate the QR code.",
+      );
+      return;
+    }
+
+    const branchId = await getQrBranchId();
+    const eventId = payload?.event_id
+      ? Number(payload.event_id)
+      : await resolveActiveEventId(branchId);
+
+    if (!eventId) {
+      Alert.alert(
+        "No Active Event",
+        "No ongoing event found for this branch.",
+      );
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const { error } = await supabase
+      .from("event_attendance")
+      .upsert(
+        {
+          event_id: eventId,
+          user_id: memberUserId,
+          check_in_method: "qr",
+          attended_at: nowIso,
+          attendance_counted: true,
+          attendance_duration_minutes: 0,
+        },
+        { onConflict: "event_id,user_id" },
+      );
+
+    if (error) {
+      console.error("QR attendance insert error:", error);
+      Alert.alert("Attendance", error.message || "Failed to record attendance.");
+      return;
+    }
+
+    Alert.alert("Attendance", "Attendance recorded via QR.");
+    loadAttendanceRecords();
   };
 
   const openScanner = async () => {
@@ -413,67 +391,19 @@ export default function AttendanceRecords() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "#f8faf9" }}>
+      <View style={[styles.header, { backgroundColor: primary }]}>
+        <Text style={styles.headerTitle}>Attendance Records</Text>
+        <TouchableOpacity
+          style={styles.settingsButton}
+          onPress={openScanner}
+        >
+          <Ionicons name="qr-code" size={24} color="#fff" />
+        </TouchableOpacity>
+      </View>
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.headerRow}>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={styles.backButton}
-          >
-            <Ionicons name="arrow-back" size={22} color="#111" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Scan Attendance</Text>
-          <View style={{ width: 32 }} />
-        </View>
-
-        <View style={styles.scanCard}>
-          <View style={styles.scanIconWrap}>
-            <Ionicons name="camera" size={26} color={primary} />
-          </View>
-          <TouchableOpacity
-            style={[styles.scanButton, { backgroundColor: primary }]}
-            onPress={openScanner}
-            activeOpacity={0.9}
-          >
-            <Text style={styles.scanButtonText}>Scan QR Code</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Time Period Filters */}
-        <View style={styles.periodFilters}>
-          <Text style={styles.sectionTitle}>Time Period</Text>
-          <View style={styles.periodRow}>
-            {timePeriods.map((period) => {
-              const active = period === selectedPeriod;
-              return (
-                <TouchableOpacity
-                  key={period}
-                  onPress={() => setSelectedPeriod(period)}
-                  style={[
-                    styles.periodButton,
-                    active && {
-                      backgroundColor: primary,
-                      borderColor: primary,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.periodText,
-                      active && { color: "#fff", fontWeight: "700" },
-                    ]}
-                  >
-                    {period}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </View>
-
-        {/* Analytics Cards */}
         <View style={styles.analyticsSection}>
           <Text style={styles.sectionTitle}>Analytics</Text>
           <View style={styles.analyticsGrid}>
@@ -500,121 +430,87 @@ export default function AttendanceRecords() {
               <Text style={styles.analyticsLabel}>Avg per Day</Text>
             </View>
           </View>
-          <View style={styles.analyticsGrid}>
-            <View
-              style={[styles.analyticsCard, { backgroundColor: "#ffeaa7" }]}
+        </View>
+
+        <View style={styles.filtersRow}>
+          <View style={styles.filterColumn}>
+            <Text style={styles.sectionTitle}>Branch</Text>
+            <TouchableOpacity
+              style={styles.selectShell}
+              activeOpacity={0.8}
+              onPress={() =>
+                setOpenDropdown((prev) => (prev === "branch" ? null : "branch"))
+              }
             >
-              <Ionicons name="calendar" size={24} color="#fdcb6e" />
-              <Text
-                style={styles.analyticsValue}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-              >
-                {analytics.topService.split(" ")[0]}
+              <Text style={styles.selectText} numberOfLines={1}>
+                {selectedBranchId == null
+                  ? "All"
+                  : branches.find((b) => b.id === selectedBranchId)?.name || "All"}
               </Text>
-              <Text style={styles.analyticsLabel}>Top Event</Text>
-            </View>
-            <View
-              style={[styles.analyticsCard, { backgroundColor: "#dfe6e9" }]}
+              <Ionicons name="chevron-down" size={16} color="#4c5a51" />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.filterColumn}>
+            <Text style={styles.sectionTitle}>Time Period</Text>
+            <TouchableOpacity
+              style={styles.selectShell}
+              activeOpacity={0.8}
+              onPress={() =>
+                setOpenDropdown((prev) => (prev === "period" ? null : "period"))
+              }
             >
-              <Ionicons name="location" size={24} color="#636e72" />
-              <Text
-                style={styles.analyticsValue}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-              >
-                {analytics.topBranch.split(" ")[0]}
+              <Text style={styles.selectText} numberOfLines={1}>
+                {selectedPeriod}
               </Text>
-              <Text style={styles.analyticsLabel}>Top Branch</Text>
-            </View>
+              <Ionicons name="chevron-down" size={16} color="#4c5a51" />
+            </TouchableOpacity>
           </View>
         </View>
 
-        <View style={styles.filtersBlock}>
-          <Text style={styles.sectionTitle}>Filters</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.filterRow}
-          >
-            {branches.map((branch) => {
-              const active = branch === selectedBranch;
-              return (
-                <TouchableOpacity
-                  key={branch}
-                  onPress={() => setSelectedBranch(branch)}
-                  style={[
-                    styles.filterChip,
-                    active && {
-                      backgroundColor: `${secondary}20`,
-                      borderColor: secondary,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.filterText,
-                      active && { color: secondary, fontWeight: "700" },
-                    ]}
-                  >
-                    {branch}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.filterRow}
-          >
-            {services.map((service) => {
-              const active = service === selectedService;
-              return (
-                <TouchableOpacity
-                  key={service}
-                  onPress={() => setSelectedService(service)}
-                  style={[
-                    styles.filterChip,
-                    active && {
-                      backgroundColor: `${secondary}20`,
-                      borderColor: secondary,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.filterText,
-                      active && { color: secondary, fontWeight: "700" },
-                    ]}
-                  >
-                    {service}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </View>
-
         <Text style={[styles.sectionTitle, { marginTop: 8 }]}>
-          Attendance Records ({selectedPeriod})
+          Records ({selectedPeriod})
         </Text>
-        {filteredRecords.length > 0 ? (
+        {loading ? (
+          <Text style={styles.emptyText}>Loading records...</Text>
+        ) : filteredRecords.length > 0 ? (
           filteredRecords.map((record) => (
             <View key={record.id} style={styles.recordRow}>
               <View style={styles.avatarWrap}>
-                <Image source={{ uri: record.avatar }} style={styles.avatar} />
+                {record.avatarUrl ? (
+                  <Image
+                    source={{ uri: record.avatarUrl }}
+                    style={styles.avatar}
+                  />
+                ) : (
+                  <View style={styles.avatarFallback}>
+                    <Text style={styles.avatarFallbackText}>
+                      {record.name.slice(0, 1).toUpperCase()}
+                    </Text>
+                  </View>
+                )}
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.name}>{record.name}</Text>
-                <Text style={styles.time}>
-                  {record.time} • {record.date}
-                </Text>
                 <Text style={styles.meta}>
-                  {record.branch} • {record.service}
+                  {record.branch} - {record.service}
+                </Text>
+                <Text style={styles.time}>{record.eventTime}</Text>
+                <Text style={styles.timeSub}>
+                  Checked in {record.time} • {record.date}
                 </Text>
               </View>
-              <Ionicons name="chevron-forward" size={18} color="#999" />
+              <View style={styles.eventThumb}>
+                {record.eventImageUrl ? (
+                  <Image
+                    source={{ uri: record.eventImageUrl }}
+                    style={styles.eventThumbImage}
+                  />
+                ) : (
+                  <View style={styles.eventThumbFallback}>
+                    <Ionicons name="image" size={18} color="#9aa5a0" />
+                  </View>
+                )}
+              </View>
             </View>
           ))
         ) : (
@@ -626,6 +522,61 @@ export default function AttendanceRecords() {
         )}
         <View style={{ height: 120 }} />
       </ScrollView>
+
+      <Modal
+        transparent
+        visible={openDropdown !== null}
+        animationType="fade"
+        onRequestClose={() => setOpenDropdown(null)}
+      >
+        <TouchableOpacity
+          style={styles.dropdownBackdrop}
+          activeOpacity={1}
+          onPress={() => setOpenDropdown(null)}
+        >
+          <View style={styles.dropdownSheet}>
+            {openDropdown === "branch" && (
+              <>
+                <TouchableOpacity
+                  style={styles.dropdownItem}
+                  onPress={() => {
+                    setSelectedBranchId(null);
+                    setOpenDropdown(null);
+                  }}
+                >
+                  <Text style={styles.dropdownItemText}>All</Text>
+                </TouchableOpacity>
+                {branches.map((b) => (
+                  <TouchableOpacity
+                    key={b.id}
+                    style={styles.dropdownItem}
+                    onPress={() => {
+                      setSelectedBranchId(b.id);
+                      setOpenDropdown(null);
+                    }}
+                  >
+                    <Text style={styles.dropdownItemText}>{b.name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </>
+            )}
+
+            {openDropdown === "period" &&
+              timePeriods.map((opt) => (
+                <TouchableOpacity
+                  key={opt}
+                  style={styles.dropdownItem}
+                  onPress={() => {
+                    setSelectedPeriod(opt);
+                    setOpenDropdown(null);
+                  }}
+                >
+                  <Text style={styles.dropdownItemText}>{opt}</Text>
+                </TouchableOpacity>
+              ))}
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       <Modal visible={showScanner} transparent animationType="slide">
         <View style={styles.scannerModal}>
@@ -678,103 +629,77 @@ export default function AttendanceRecords() {
 }
 
 const styles = StyleSheet.create({
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: 50,
+    paddingBottom: 16,
+  },
+  settingsButton: {
+    padding: 4,
+  },
   content: {
     paddingHorizontal: 18,
     paddingTop: 32,
   },
-  headerRow: {
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#fff",
+  },
+  filtersRow: {
+    flexDirection: "row",
+    gap: 14,
+    marginBottom: 20,
+  },
+  filterColumn: {
+    flex: 1,
+    minWidth: 0,
+  },
+  selectShell: {
+    height: 40,
+    borderWidth: 1,
+    borderColor: "#e1e5e2",
+    borderRadius: 10,
+    backgroundColor: "#fff",
+    paddingHorizontal: 10,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 24,
   },
-  backButton: {
-    width: 32,
-    height: 32,
-    alignItems: "center",
+  selectText: {
+    fontSize: 13,
+    color: "#1f2a1f",
+  },
+  dropdownBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.25)",
     justifyContent: "center",
-    borderRadius: 16,
-    backgroundColor: "#eef3ef",
+    paddingHorizontal: 24,
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#111",
-  },
-  scanCard: {
-    alignItems: "center",
-    marginBottom: 24,
-  },
-  scanIconWrap: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
+  dropdownSheet: {
     backgroundColor: "#fff",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    elevation: 3,
-    marginBottom: 12,
+    borderRadius: 14,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: "#e3e7e5",
+    maxHeight: "70%",
   },
-  scanButton: {
-    paddingHorizontal: 28,
+  dropdownItem: {
+    paddingHorizontal: 16,
     paddingVertical: 12,
-    borderRadius: 10,
   },
-  scanButtonText: {
-    color: "#fff",
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  filtersBlock: {
-    marginBottom: 16,
+  dropdownItemText: {
+    fontSize: 14,
+    color: "#1f2a1f",
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: "800",
     color: "#111",
     marginBottom: 12,
-  },
-  filterRow: {
-    marginBottom: 10,
-  },
-  filterChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 18,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#e3e7e4",
-    marginRight: 10,
-  },
-  filterText: {
-    fontSize: 13,
-    color: "#444",
-  },
-  periodFilters: {
-    marginBottom: 20,
-  },
-  periodRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  periodButton: {
-    flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#e3e7e4",
-    alignItems: "center",
-  },
-  periodText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#444",
   },
   analyticsSection: {
     marginBottom: 20,
@@ -847,6 +772,18 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
+  avatarFallback: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: "#e6ebe8",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarFallbackText: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#2f3b33",
+  },
   name: {
     fontSize: 15,
     fontWeight: "700",
@@ -858,10 +795,32 @@ const styles = StyleSheet.create({
     color: "#0f8a43",
     marginTop: 4,
   },
+  timeSub: {
+    fontSize: 11,
+    color: "#8a948f",
+    marginTop: 2,
+  },
   meta: {
     fontSize: 12,
     color: "#666",
     marginTop: 2,
+  },
+  eventThumb: {
+    width: 52,
+    height: 52,
+    borderRadius: 10,
+    overflow: "hidden",
+    marginLeft: 10,
+    backgroundColor: "#eef2ef",
+  },
+  eventThumbImage: {
+    width: "100%",
+    height: "100%",
+  },
+  eventThumbFallback: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   scannerModal: {
     flex: 1,
@@ -933,3 +892,18 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
