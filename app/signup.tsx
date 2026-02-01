@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import DateTimePicker from "@react-native-community/datetimepicker";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
@@ -27,6 +26,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import philippineAddresses from "../src/data/philippine_provinces_cities_municipalities_and_barangays_2019v2.json";
 import { supabase } from "../src/lib/supabaseClient";
+
+const DateTimePicker: any =
+  Platform.OS === "web"
+    ? null
+    : require("@react-native-community/datetimepicker").default;
 
 // Philippine phone number formatter
 const formatPhilippinePhone = (value: string) => {
@@ -94,6 +98,9 @@ export default function Signup() {
   const [branchId, setBranchId] = useState<number | null>(null);
   const [branchName, setBranchName] = useState("");
   const [branchOpen, setBranchOpen] = useState(false);
+  const [activeCredentialDropdown, setActiveCredentialDropdown] = useState<
+    "suffix" | "gender" | "branch" | null
+  >(null);
   const [contactNumber, setContactNumber] = useState("");
   const [showBirthDatePicker, setShowBirthDatePicker] = useState(false);
   const [showBaptismalDatePicker, setShowBaptismalDatePicker] = useState(false);
@@ -955,9 +962,18 @@ export default function Signup() {
           borderWidth: 2,
           borderColor: "rgba(11,101,22,0.2)",
           borderRadius: 12,
+          zIndex: activeCredentialDropdown === "suffix" ? 6000 : 3000,
         }}
-        containerStyle={{ marginBottom: 16 }}
-        onOpen={() => setGenderOpen(false)}
+        containerStyle={{
+          marginBottom: 16,
+          zIndex: activeCredentialDropdown === "suffix" ? 5000 : 3000,
+        }}
+        onOpen={() => {
+          setActiveCredentialDropdown("suffix");
+          setGenderOpen(false);
+          setBranchOpen(false);
+        }}
+        onClose={() => setActiveCredentialDropdown(null)}
       />
 
       <Text
@@ -971,47 +987,70 @@ export default function Signup() {
       >
         BIRTH DATE *
       </Text>
-      <TouchableOpacity
-        onPress={() => setShowBirthDatePicker(true)}
-        style={{
-          backgroundColor: "rgba(255,255,255,0.95)",
-          borderRadius: 14,
-          paddingVertical: 14,
-          paddingHorizontal: 16,
-          borderWidth: 2,
-          borderColor: "rgba(11,101,22,0.2)",
-          marginBottom: 16,
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <Text
+      {Platform.OS === "web" ? (
+        <TextInput
+          value={birthDate}
+          onChangeText={setBirthDate}
+          placeholder="YYYY-MM-DD"
+          placeholderTextColor="#707070"
           style={{
-            color: birthDate ? "#0a1612" : "#707070",
+            backgroundColor: "rgba(255,255,255,0.95)",
+            borderRadius: 14,
+            paddingVertical: 14,
+            paddingHorizontal: 16,
+            borderWidth: 2,
+            borderColor: "rgba(11,101,22,0.2)",
+            marginBottom: 16,
             fontSize: 15,
-            fontWeight: "500",
+            color: "#0a1612",
           }}
-        >
-          {birthDate
-            ? new Date(birthDate).toLocaleDateString()
-            : "Select birth date"}
-        </Text>
-        <Ionicons name="calendar-outline" size={20} color={primary} />
-      </TouchableOpacity>
-
-      {showBirthDatePicker && (
-        <DateTimePicker
-          value={birthDate ? new Date(birthDate) : new Date()}
-          mode="date"
-          maximumDate={new Date()}
-          onChange={(event: any, selectedDate?: Date) => {
-            if (event.type === "set" && selectedDate) {
-              setBirthDate(selectedDate.toISOString().split("T")[0]);
-            }
-            setShowBirthDatePicker(false);
-          }}
+          {...({ type: "date" } as any)}
         />
+      ) : (
+        <>
+          <TouchableOpacity
+            onPress={() => setShowBirthDatePicker(true)}
+            style={{
+              backgroundColor: "rgba(255,255,255,0.95)",
+              borderRadius: 14,
+              paddingVertical: 14,
+              paddingHorizontal: 16,
+              borderWidth: 2,
+              borderColor: "rgba(11,101,22,0.2)",
+              marginBottom: 16,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <Text
+              style={{
+                color: birthDate ? "#0a1612" : "#707070",
+                fontSize: 15,
+                fontWeight: "500",
+              }}
+            >
+              {birthDate
+                ? new Date(birthDate).toLocaleDateString()
+                : "Select birth date"}
+            </Text>
+            <Ionicons name="calendar-outline" size={20} color={primary} />
+          </TouchableOpacity>
+
+          {showBirthDatePicker && DateTimePicker ? (
+            <DateTimePicker
+              value={birthDate ? new Date(birthDate) : new Date()}
+              mode="date"
+              maximumDate={new Date()}
+              onChange={(event: any, selectedDate?: Date) => {
+                if (event.type === "set" && selectedDate) {
+                  setBirthDate(selectedDate.toISOString().split("T")[0]);
+                }
+                setShowBirthDatePicker(false);
+              }}
+            />
+          ) : null}
+        </>
       )}
 
       <Text
@@ -1025,47 +1064,70 @@ export default function Signup() {
       >
         BAPTISMAL DATE (Optional - Leave blank if not baptised at EECM)
       </Text>
-      <TouchableOpacity
-        onPress={() => setShowBaptismalDatePicker(true)}
-        style={{
-          backgroundColor: "rgba(255,255,255,0.95)",
-          borderRadius: 14,
-          paddingVertical: 14,
-          paddingHorizontal: 16,
-          borderWidth: 2,
-          borderColor: "rgba(11,101,22,0.2)",
-          marginBottom: 16,
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <Text
+      {Platform.OS === "web" ? (
+        <TextInput
+          value={baptismalDate}
+          onChangeText={setBaptismalDate}
+          placeholder="YYYY-MM-DD"
+          placeholderTextColor="#707070"
           style={{
-            color: baptismalDate ? "#0a1612" : "#707070",
+            backgroundColor: "rgba(255,255,255,0.95)",
+            borderRadius: 14,
+            paddingVertical: 14,
+            paddingHorizontal: 16,
+            borderWidth: 2,
+            borderColor: "rgba(11,101,22,0.2)",
+            marginBottom: 16,
             fontSize: 15,
-            fontWeight: "500",
+            color: "#0a1612",
           }}
-        >
-          {baptismalDate
-            ? new Date(baptismalDate).toLocaleDateString()
-            : "Select baptismal date"}
-        </Text>
-        <Ionicons name="calendar-outline" size={20} color={primary} />
-      </TouchableOpacity>
-
-      {showBaptismalDatePicker && (
-        <DateTimePicker
-          value={baptismalDate ? new Date(baptismalDate) : new Date()}
-          mode="date"
-          maximumDate={new Date()}
-          onChange={(event: any, selectedDate?: Date) => {
-            if (event.type === "set" && selectedDate) {
-              setBaptismalDate(selectedDate.toISOString().split("T")[0]);
-            }
-            setShowBaptismalDatePicker(false);
-          }}
+          {...({ type: "date" } as any)}
         />
+      ) : (
+        <>
+          <TouchableOpacity
+            onPress={() => setShowBaptismalDatePicker(true)}
+            style={{
+              backgroundColor: "rgba(255,255,255,0.95)",
+              borderRadius: 14,
+              paddingVertical: 14,
+              paddingHorizontal: 16,
+              borderWidth: 2,
+              borderColor: "rgba(11,101,22,0.2)",
+              marginBottom: 16,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <Text
+              style={{
+                color: baptismalDate ? "#0a1612" : "#707070",
+                fontSize: 15,
+                fontWeight: "500",
+              }}
+            >
+              {baptismalDate
+                ? new Date(baptismalDate).toLocaleDateString()
+                : "Select baptismal date"}
+            </Text>
+            <Ionicons name="calendar-outline" size={20} color={primary} />
+          </TouchableOpacity>
+
+          {showBaptismalDatePicker && DateTimePicker ? (
+            <DateTimePicker
+              value={baptismalDate ? new Date(baptismalDate) : new Date()}
+              mode="date"
+              maximumDate={new Date()}
+              onChange={(event: any, selectedDate?: Date) => {
+                if (event.type === "set" && selectedDate) {
+                  setBaptismalDate(selectedDate.toISOString().split("T")[0]);
+                }
+                setShowBaptismalDatePicker(false);
+              }}
+            />
+          ) : null}
+        </>
       )}
 
       <Text
@@ -1110,12 +1172,18 @@ export default function Signup() {
           borderWidth: 2,
           borderColor: "rgba(11,101,22,0.2)",
           borderRadius: 12,
+          zIndex: activeCredentialDropdown === "branch" ? 6000 : 3000,
         }}
-        containerStyle={{ marginBottom: 24, zIndex: 5000 }}
+        containerStyle={{
+          marginBottom: 24,
+          zIndex: activeCredentialDropdown === "branch" ? 5000 : 3000,
+        }}
         onOpen={() => {
+          setActiveCredentialDropdown("branch");
           setSuffixOpen(false);
           setGenderOpen(false);
         }}
+        onClose={() => setActiveCredentialDropdown(null)}
       />
       {branchName ? (
         <Text
@@ -1163,9 +1231,18 @@ export default function Signup() {
           borderWidth: 2,
           borderColor: "rgba(11,101,22,0.2)",
           borderRadius: 12,
+          zIndex: activeCredentialDropdown === "gender" ? 6000 : 3000,
         }}
-        containerStyle={{ marginBottom: 16 }}
-        onOpen={() => setSuffixOpen(false)}
+        containerStyle={{
+          marginBottom: 16,
+          zIndex: activeCredentialDropdown === "gender" ? 5000 : 3000,
+        }}
+        onOpen={() => {
+          setActiveCredentialDropdown("gender");
+          setSuffixOpen(false);
+          setBranchOpen(false);
+        }}
+        onClose={() => setActiveCredentialDropdown(null)}
       />
 
       <Text

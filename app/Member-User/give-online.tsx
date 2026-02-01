@@ -20,7 +20,6 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
-  BankIcon,
   GcashIcon,
   MayaIcon,
 } from "../../components/ui/wallet-icons";
@@ -28,7 +27,7 @@ import { supabase } from "../../src/lib/supabaseClient";
 import MemberNavbar from "./member-navbar";
 
 type DonorNoteKey = "anonymous" | "family" | "individual";
-type WalletKey = "Maya" | "GCash" | "Bank";
+type WalletKey = "Maya" | "GCash";
 
 const parseAmountPHP = (raw: string) => {
   const cleaned = String(raw || "").replace(/[^0-9.]/g, "");
@@ -45,11 +44,6 @@ const paymongoTypesForWallet = (wallet: WalletKey): string[] => {
       return ["gcash"];
     case "Maya":
       return ["paymaya"]; // commonly used for Maya in PayMongo
-    case "Bank":
-      // This depends on your PayMongo enabled methods.
-      // If your account uses online banking/Dragonpay, it might be "dob".
-      // If this fails, your error handler will tell the user to use GCash/Maya for now.
-      return ["dob"];
     default:
       return ["gcash"];
   }
@@ -275,7 +269,7 @@ export default function GiveOnlineScreen() {
           "Checkout Failed",
           detailsMsg ||
             (status ? `Server error (${status}).` : "") ||
-            "Unable to start checkout. If you selected Bank and it isn't enabled in PayMongo yet, try GCash or Maya.",
+            "Unable to start checkout. If this keeps failing, try another payment method.",
         );
         return;
       }
@@ -412,21 +406,6 @@ export default function GiveOnlineScreen() {
               activeOpacity={0.85}
             >
               <GcashIcon width={70} height={26} />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.walletChip,
-                selectedWallet === "Bank" && {
-                  borderColor: primary,
-                  backgroundColor: `${primary}15`,
-                },
-              ]}
-              onPress={() => setSelectedWallet("Bank")}
-              activeOpacity={0.85}
-            >
-              <BankIcon width={28} height={28} />
-              <Text style={styles.walletText}>Bank</Text>
             </TouchableOpacity>
           </View>
         </View>

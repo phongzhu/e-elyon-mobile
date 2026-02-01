@@ -1,6 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import DateTimePicker from "@react-native-community/datetimepicker";
 import * as Location from "expo-location";
 import { router } from "expo-router";
 import { DateTime } from "luxon";
@@ -27,6 +26,11 @@ import { RRule } from "rrule";
 import { supabase } from "../../src/lib/supabaseClient";
 import CounselingRequest from "./counseling_request";
 import MemberNavbar from "./member-navbar";
+
+const DateTimePicker: any =
+  Platform.OS === "web"
+    ? null
+    : require("@react-native-community/datetimepicker").default;
 
 // Keep a per-session flag so we only prompt once after login until the app is restarted or the user logs out.
 let hasPromptedLocationThisSession = false;
@@ -833,6 +837,14 @@ const ResourcesView = ({ branding }: { branding: any }) => {
     }
   };
 
+  const handleWebDateChange = (value: string) => {
+    if (!value) return;
+    const next = new Date(`${value}T00:00:00`);
+    if (!Number.isNaN(next.getTime())) {
+      setRequestDate(next);
+    }
+  };
+
   const handleSubmitRequest = async () => {
     if (purpose.trim().length < 10 || !duration) return;
 
@@ -938,34 +950,49 @@ const ResourcesView = ({ branding }: { branding: any }) => {
                 {/* Date */}
                 <View style={styles.resourceFormSection}>
                   <Text style={styles.resourceFormLabel}>Requested Date</Text>
-                  <TouchableOpacity
-                    style={styles.resourceDateButton}
-                    onPress={() => setShowDatePicker(true)}
-                  >
-                    <Ionicons
-                      name="calendar-outline"
-                      size={20}
-                      color={primary}
+                  {Platform.OS === "web" ? (
+                    <TextInput
+                      style={styles.resourceDateButton}
+                      value={requestDate.toISOString().split("T")[0]}
+                      onChangeText={handleWebDateChange}
+                      placeholder="YYYY-MM-DD"
+                      placeholderTextColor="#999"
+                      {...({ type: "date" } as any)}
                     />
-                    <Text
-                      style={[
-                        styles.resourceDateText,
-                        { color: branding?.primary_text_color || "#000" },
-                      ]}
-                    >
-                      {formatDate(requestDate)}
-                    </Text>
-                  </TouchableOpacity>
+                  ) : (
+                    <>
+                      <TouchableOpacity
+                        style={styles.resourceDateButton}
+                        onPress={() => setShowDatePicker(true)}
+                      >
+                        <Ionicons
+                          name="calendar-outline"
+                          size={20}
+                          color={primary}
+                        />
+                        <Text
+                          style={[
+                            styles.resourceDateText,
+                            { color: branding?.primary_text_color || "#000" },
+                          ]}
+                        >
+                          {formatDate(requestDate)}
+                        </Text>
+                      </TouchableOpacity>
 
-                  {showDatePicker && (
-                    <DateTimePicker
-                      value={requestDate}
-                      mode="date"
-                      display={Platform.OS === "ios" ? "default" : "default"}
-                      onChange={handleDateChange}
-                      minimumDate={new Date()}
-                      accentColor={primary}
-                    />
+                      {showDatePicker && DateTimePicker ? (
+                        <DateTimePicker
+                          value={requestDate}
+                          mode="date"
+                          display={
+                            Platform.OS === "ios" ? "default" : "default"
+                          }
+                          onChange={handleDateChange}
+                          minimumDate={new Date()}
+                          accentColor={primary}
+                        />
+                      ) : null}
+                    </>
                   )}
                 </View>
 
@@ -2804,7 +2831,7 @@ export default function MemberDashboard() {
                 >
                   <Ionicons name="megaphone" size={18} color={primary} />
                   <Text style={[styles.sectionTitle, { color: "#1a1a1a" }]}>
-                    Announcements
+                    Recent Releases
                   </Text>
                 </View>
                 <TouchableOpacity
